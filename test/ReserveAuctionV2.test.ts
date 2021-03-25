@@ -4,6 +4,8 @@ import { JsonRpcProvider } from '@ethersproject/providers';
 import {
   MarketFactory,
   MediaFactory,
+  ReserveAuction,
+  ReserveAuctionV2,
   ReserveAuctionV2Factory,
 } from '../typechain';
 import { generatedWallets } from '../utils/generatedWallets';
@@ -17,13 +19,19 @@ const provider = new JsonRpcProvider();
 const ERROR_MESSAGES = {
   NOT_NFT: "Doesn't support NFT interface",
   NOT_OWNER: 'Ownable: caller is not the owner',
+  AUCTION_ALREADY_EXISTS: 'Auction already exists',
 };
 
 let marketAddress: string;
 let mediaAddress: string;
 let auctionAddress: string;
 
-const [deployerWallet, otherWallet] = generatedWallets(provider);
+const [
+  deployerWallet,
+  creatorWallet,
+  fundsRecipientWallet,
+  otherWallet,
+] = generatedWallets(provider);
 
 async function deploy() {
   const market = await (
@@ -47,7 +55,7 @@ async function deploy() {
   auctionAddress = auction.address;
 }
 
-async function auctionAs(wallet: Wallet) {
+async function auctionAs(wallet: Wallet): Promise<ReserveAuctionV2> {
   return ReserveAuctionV2Factory.connect(auctionAddress, wallet);
 }
 
@@ -103,6 +111,12 @@ describe('ReserveAuctionV2', () => {
           expect(await auction.zora()).eq(newMediaContract.address);
         });
       });
+    });
+
+    // Reset zora so other tests don't break
+    after(async () => {
+      const auction = await auctionAs(deployerWallet);
+      await auction.updateZora(mediaAddress);
     });
   });
 
@@ -181,6 +195,101 @@ describe('ReserveAuctionV2', () => {
   });
 
   describe('#createAuction', () => {
-    describe('sad path', () => {});
+    describe('sad path', () => {
+      describe('when the auction already exists', () => {
+        let auctionAsCreator: ReserveAuctionV2;
+        let tokenId, duration, reservePrice;
+
+        before(async () => {
+          auctionAsCreator = await auctionAs(creatorWallet);
+
+          // TODO: mint token using zora
+          tokenId = 1;
+          duration = 60 * 60 * 24; // 24 hours
+          reservePrice = BigNumber.from(10).pow(18); // 1 ETH
+
+          await (
+            await auctionAsCreator.createAuction(
+              tokenId,
+              duration,
+              reservePrice,
+              creatorWallet.address,
+              fundsRecipientWallet.address
+            )
+          ).wait();
+        });
+
+        it.only('should revert', async () => {
+          await expect(
+            auctionAsCreator.createAuction(
+              tokenId,
+              duration,
+              reservePrice,
+              creatorWallet.address,
+              fundsRecipientWallet.address
+            )
+          ).rejectedWith(ERROR_MESSAGES.AUCTION_ALREADY_EXISTS);
+        });
+      });
+    });
+
+    describe('happy path', () => {
+      describe('when an auction is created', () => {
+        let auctionAsCreator: ReserveAuctionV2;
+        let tokenId, duration, reservePrice, event;
+
+        before(async () => {
+          auctionAsCreator = await auctionAs(creatorWallet);
+
+          // TODO: mint token using zora
+          tokenId = 2;
+          duration = 60 * 60 * 24; // 24 hours
+          reservePrice = BigNumber.from(10).pow(18); // 1 ETH
+
+          const tx = await (
+            await auctionAsCreator.createAuction(
+              tokenId,
+              duration,
+              reservePrice,
+              creatorWallet.address,
+              fundsRecipientWallet.address
+            )
+          ).wait();
+
+          event = tx.events[0];
+        });
+
+        it('should correctly set attributes', async () => {
+          const auction = await auctionAsCreator.auctions(tokenId);
+
+          expect(auction.exists).eq(true);
+          expect(auction.reservePrice.toString()).eq(reservePrice.toString());
+          expect(auction.duration.toNumber()).eq(duration);
+          expect(auction.creator).eq(creatorWallet.address);
+          expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
+        });
+
+        it('should transfer the NFT to the auction', () => {});
+
+        it('should emit the AuctionCreated event', () => {
+          const {
+            tokenId: tokenIdFromEvent,
+            zoraAddress,
+            duration: durationFromEvent,
+            reservePrice: reservePriceFromEvent,
+            creator,
+            fundsRecipient,
+          } = event.args;
+
+          expect(event.event).eq('AuctionCreated');
+          expect(tokenIdFromEvent.toNumber()).eq(tokenId);
+          expect(zoraAddress).eq(mediaAddress);
+          expect(durationFromEvent.toNumber()).eq(duration);
+          expect(reservePriceFromEvent.toString()).eq(reservePrice.toString());
+          expect(creator).eq(creatorWallet.address);
+          expect(fundsRecipient).eq(fundsRecipientWallet.address);
+        });
+      });
+    });
   });
 });

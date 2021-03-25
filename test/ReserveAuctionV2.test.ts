@@ -291,6 +291,10 @@ describe('ReserveAuctionV2', () => {
   });
 
   describe('#createAuction', () => {
+    beforeEach(async () => {
+      await deploy();
+    });
+
     describe('sad path', () => {
       describe('when the auction already exists', () => {
         let auctionAsCreator: ReserveAuctionV2;
@@ -333,7 +337,7 @@ describe('ReserveAuctionV2', () => {
         let auctionAsCreator: ReserveAuctionV2;
         let tokenId, duration, reservePrice, event;
 
-        before(async () => {
+        beforeEach(async () => {
           auctionAsCreator = await auctionAs(creatorWallet);
 
           tokenId = (await mintTokenAs(creatorWallet)).toNumber();

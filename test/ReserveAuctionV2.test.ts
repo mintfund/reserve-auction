@@ -357,7 +357,7 @@ describe('ReserveAuctionV2', () => {
           event = tx.events[0];
         });
 
-        it('should correctly set attributes', async () => {
+        it('should set the attributes correctly', async () => {
           const auction = await auctionAsCreator.auctions(tokenId);
 
           expect(auction.exists).eq(true);

@@ -1,20 +1,24 @@
 import chai, { expect } from 'chai';
 import asPromised from 'chai-as-promised';
 import { JsonRpcProvider } from '@ethersproject/providers';
+import { Blockchain } from '../utils/Blockchain';
 import {
   MarketFactory,
   MediaFactory,
-  ReserveAuction,
   ReserveAuctionV2,
   ReserveAuctionV2Factory,
+  Media,
 } from '../typechain';
+import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
 import { Wallet } from '@ethersproject/wallet';
-import { BigNumber, ethers } from 'ethers';
+import { BigNumber, Bytes, ethers } from 'ethers';
+import { sha256 } from 'ethers/lib/utils';
 
 chai.use(asPromised);
 
 const provider = new JsonRpcProvider();
+const blockchain = new Blockchain(provider);
 
 const ERROR_MESSAGES = {
   NOT_NFT: "Doesn't support NFT interface",
@@ -22,9 +26,42 @@ const ERROR_MESSAGES = {
   AUCTION_ALREADY_EXISTS: 'Auction already exists',
 };
 
+let contentHex: string;
+let contentHash: string;
+let contentHashBytes: Bytes;
+let otherContentHex: string;
+let otherContentHash: string;
+let metadataHex: string;
+let metadataHash: string;
+let metadataHashBytes: Bytes;
+
 let marketAddress: string;
 let mediaAddress: string;
 let auctionAddress: string;
+
+let tokenURI = 'www.example.com';
+let metadataURI = 'www.example2.com';
+
+let defaultBidShares = {
+  prevOwner: Decimal.new(10),
+  owner: Decimal.new(80),
+  creator: Decimal.new(10),
+};
+
+type DecimalValue = { value: BigNumber };
+
+type BidShares = {
+  owner: DecimalValue;
+  prevOwner: DecimalValue;
+  creator: DecimalValue;
+};
+
+type MediaData = {
+  tokenURI: string;
+  metadataURI: string;
+  contentHash: Bytes;
+  metadataHash: Bytes;
+};
 
 const [
   deployerWallet,
@@ -55,11 +92,70 @@ async function deploy() {
   auctionAddress = auction.address;
 }
 
+async function mediaAs(wallet: Wallet) {
+  return MediaFactory.connect(mediaAddress, wallet);
+}
+
+async function mint(
+  zoraMedia: Media,
+  metadataURI: string,
+  tokenURI: string,
+  contentHash: Bytes,
+  metadataHash: Bytes,
+  shares: BidShares
+) {
+  const data: MediaData = {
+    tokenURI,
+    metadataURI,
+    contentHash,
+    metadataHash,
+  };
+
+  return zoraMedia.mint(data, shares);
+}
+
+async function mintTokenAs(wallet: Wallet) {
+  const zoraMediaAsCreator = await mediaAs(wallet);
+
+  await mint(
+    zoraMediaAsCreator,
+    metadataURI,
+    tokenURI,
+    contentHashBytes,
+    metadataHashBytes,
+    defaultBidShares
+  );
+
+  const totalTokens = await zoraMediaAsCreator.balanceOf(creatorWallet.address);
+
+  const lastToken = await zoraMediaAsCreator.tokenOfOwnerByIndex(
+    creatorWallet.address,
+    totalTokens.sub(1)
+  );
+
+  return lastToken;
+}
+
 async function auctionAs(wallet: Wallet): Promise<ReserveAuctionV2> {
   return ReserveAuctionV2Factory.connect(auctionAddress, wallet);
 }
 
 describe('ReserveAuctionV2', () => {
+  beforeEach(async () => {
+    await blockchain.resetAsync();
+
+    metadataHex = ethers.utils.formatBytes32String('{}');
+    metadataHash = await sha256(metadataHex);
+    metadataHashBytes = ethers.utils.arrayify(metadataHash);
+
+    contentHex = ethers.utils.formatBytes32String('invert');
+    contentHash = await sha256(contentHex);
+    contentHashBytes = ethers.utils.arrayify(contentHash);
+
+    otherContentHex = ethers.utils.formatBytes32String('otherthing');
+    otherContentHash = await sha256(otherContentHex);
+  });
+
   before(async () => {
     await deploy();
   });
@@ -113,7 +209,7 @@ describe('ReserveAuctionV2', () => {
       });
     });
 
-    // Reset zora so other tests don't break
+    // Reset zora address so other tests don't break
     after(async () => {
       const auction = await auctionAs(deployerWallet);
       await auction.updateZora(mediaAddress);
@@ -203,8 +299,7 @@ describe('ReserveAuctionV2', () => {
         before(async () => {
           auctionAsCreator = await auctionAs(creatorWallet);
 
-          // TODO: mint token using zora
-          tokenId = 1;
+          tokenId = (await mintTokenAs(creatorWallet)).toNumber();
           duration = 60 * 60 * 24; // 24 hours
           reservePrice = BigNumber.from(10).pow(18); // 1 ETH
 
@@ -219,7 +314,7 @@ describe('ReserveAuctionV2', () => {
           ).wait();
         });
 
-        it.only('should revert', async () => {
+        it('should revert', async () => {
           await expect(
             auctionAsCreator.createAuction(
               tokenId,
@@ -241,8 +336,7 @@ describe('ReserveAuctionV2', () => {
         before(async () => {
           auctionAsCreator = await auctionAs(creatorWallet);
 
-          // TODO: mint token using zora
-          tokenId = 2;
+          tokenId = (await mintTokenAs(creatorWallet)).toNumber();
           duration = 60 * 60 * 24; // 24 hours
           reservePrice = BigNumber.from(10).pow(18); // 1 ETH
 

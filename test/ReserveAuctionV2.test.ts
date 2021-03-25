@@ -131,4 +131,36 @@ describe('ReserveAuctionV2', () => {
       });
     });
   });
+
+  describe('#updateTimeBuffer', () => {
+    describe('when a non-owner tries to call the function', () => {
+      it('should revert', async () => {
+        const auction = await auctionAs(otherWallet);
+
+        const newTimeBuffer = 1;
+
+        await expect(auction.updateTimeBuffer(newTimeBuffer)).rejectedWith(
+          ERROR_MESSAGES.NOT_OWNER
+        );
+      });
+    });
+
+    describe('when called by the owner', () => {
+      it('should update the min bid', async () => {
+        const auction = await auctionAs(deployerWallet);
+
+        const defaultTimeBuffer = 60 * 15; // 15 minutes
+
+        expect(await (await auction.timeBuffer()).toNumber()).eq(
+          defaultTimeBuffer
+        );
+
+        const newTimeBuffer = 60 + 5; // 5 minutes
+
+        await auction.updateTimeBuffer(newTimeBuffer);
+
+        expect(await (await auction.timeBuffer()).toNumber()).eq(newTimeBuffer);
+      });
+    });
+  });
 });

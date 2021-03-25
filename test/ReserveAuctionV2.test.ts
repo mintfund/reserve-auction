@@ -1,4 +1,5 @@
-import { expect } from 'chai';
+import chai, { expect } from 'chai';
+import asPromised from 'chai-as-promised';
 import { JsonRpcProvider } from '@ethersproject/providers';
 import {
   MarketFactory,
@@ -7,14 +8,22 @@ import {
 } from '../typechain';
 import { generatedWallets } from '../utils/generatedWallets';
 import { Wallet } from '@ethersproject/wallet';
+import { BigNumber, ethers } from 'ethers';
+
+chai.use(asPromised);
 
 const provider = new JsonRpcProvider();
+
+const ERROR_MESSAGES = {
+  NOT_NFT: "Doesn't support NFT interface",
+  NOT_OWNER: 'Ownable: caller is not the owner',
+};
 
 let marketAddress: string;
 let mediaAddress: string;
 let auctionAddress: string;
 
-const [deployerWallet] = generatedWallets(provider);
+const [deployerWallet, otherWallet] = generatedWallets(provider);
 
 async function deploy() {
   const market = await (
@@ -52,7 +61,7 @@ describe('ReserveAuctionV2', () => {
       it.skip('should revert', async () => {
         await expect(
           new ReserveAuctionV2Factory(deployerWallet).deploy(marketAddress)
-        ).rejectedWith('Derp');
+        ).rejectedWith(ERROR_MESSAGES.NOT_NFT);
       });
     });
 
@@ -65,6 +74,15 @@ describe('ReserveAuctionV2', () => {
   });
 
   describe('#updateZora', () => {
+    describe('when a non-owner tries to call the function', () => {
+      it('should revert', async () => {
+        const auction = await auctionAs(otherWallet);
+        await expect(auction.updateZora(mediaAddress)).rejectedWith(
+          ERROR_MESSAGES.NOT_OWNER
+        );
+      });
+    });
+
     describe('when the passed in address does meet the NFT standard', () => {
       it('should set the zora address', async () => {
         const auction = await auctionAs(deployerWallet);
@@ -78,6 +96,38 @@ describe('ReserveAuctionV2', () => {
         await auction.updateZora(newMediaContract.address);
 
         expect(await auction.zora()).eq(newMediaContract.address);
+      });
+    });
+  });
+
+  describe('#updateMinBid', () => {
+    describe('when a non-owner tries to call the function', () => {
+      it('should revert', async () => {
+        const auction = await auctionAs(otherWallet);
+
+        const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
+
+        await expect(auction.updateMinBid(newMinBid)).rejectedWith(
+          ERROR_MESSAGES.NOT_OWNER
+        );
+      });
+    });
+
+    describe('when called by the owner', () => {
+      it('should update the min bid', async () => {
+        const auction = await auctionAs(deployerWallet);
+
+        const defaultMinBid = BigNumber.from(10).pow(16); // 0.01 ETH
+
+        expect((await auction.minBid()).toString()).eq(
+          defaultMinBid.toString()
+        );
+
+        const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
+
+        await auction.updateMinBid(newMinBid);
+
+        expect((await auction.minBid()).toString()).eq(newMinBid.toString());
       });
     });
   });

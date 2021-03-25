@@ -65,102 +65,122 @@ describe('ReserveAuctionV2', () => {
       });
     });
 
-    describe('when the passed in address does meet the NFT standard', () => {
-      it('should set the zora address', async () => {
-        const auction = await auctionAs(deployerWallet);
-        expect(await auction.zora()).eq(mediaAddress);
+    describe('happy path', () => {
+      describe('when the passed in address does meet the NFT standard', () => {
+        it('should set the zora address', async () => {
+          const auction = await auctionAs(deployerWallet);
+          expect(await auction.zora()).eq(mediaAddress);
+        });
       });
     });
   });
 
   describe('#updateZora', () => {
-    describe('when a non-owner tries to call the function', () => {
-      it('should revert', async () => {
-        const auction = await auctionAs(otherWallet);
-        await expect(auction.updateZora(mediaAddress)).rejectedWith(
-          ERROR_MESSAGES.NOT_OWNER
-        );
+    describe('sad path', () => {
+      describe('when a non-owner tries to call the function', () => {
+        it('should revert', async () => {
+          const auction = await auctionAs(otherWallet);
+          await expect(auction.updateZora(mediaAddress)).rejectedWith(
+            ERROR_MESSAGES.NOT_OWNER
+          );
+        });
       });
     });
 
-    describe('when the passed in address does meet the NFT standard', () => {
-      it('should set the zora address', async () => {
-        const auction = await auctionAs(deployerWallet);
+    describe('happy path', () => {
+      describe('when the passed in address does meet the NFT standard', () => {
+        it('should set the zora address', async () => {
+          const auction = await auctionAs(deployerWallet);
 
-        expect(await auction.zora()).eq(mediaAddress);
+          expect(await auction.zora()).eq(mediaAddress);
 
-        const newMediaContract = await (
-          await new MediaFactory(deployerWallet).deploy(marketAddress)
-        ).deployed();
+          const newMediaContract = await (
+            await new MediaFactory(deployerWallet).deploy(marketAddress)
+          ).deployed();
 
-        await auction.updateZora(newMediaContract.address);
+          await auction.updateZora(newMediaContract.address);
 
-        expect(await auction.zora()).eq(newMediaContract.address);
+          expect(await auction.zora()).eq(newMediaContract.address);
+        });
       });
     });
   });
 
   describe('#updateMinBid', () => {
-    describe('when a non-owner tries to call the function', () => {
-      it('should revert', async () => {
-        const auction = await auctionAs(otherWallet);
+    describe('sad path', () => {
+      describe('when a non-owner tries to call the function', () => {
+        it('should revert', async () => {
+          const auction = await auctionAs(otherWallet);
 
-        const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
+          const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
 
-        await expect(auction.updateMinBid(newMinBid)).rejectedWith(
-          ERROR_MESSAGES.NOT_OWNER
-        );
+          await expect(auction.updateMinBid(newMinBid)).rejectedWith(
+            ERROR_MESSAGES.NOT_OWNER
+          );
+        });
       });
     });
 
-    describe('when called by the owner', () => {
-      it('should update the min bid', async () => {
-        const auction = await auctionAs(deployerWallet);
+    describe('happy path', () => {
+      describe('when called by the owner', () => {
+        it('should update the min bid', async () => {
+          const auction = await auctionAs(deployerWallet);
 
-        const defaultMinBid = BigNumber.from(10).pow(16); // 0.01 ETH
+          const defaultMinBid = BigNumber.from(10).pow(16); // 0.01 ETH
 
-        expect((await auction.minBid()).toString()).eq(
-          defaultMinBid.toString()
-        );
+          expect((await auction.minBid()).toString()).eq(
+            defaultMinBid.toString()
+          );
 
-        const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
+          const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
 
-        await auction.updateMinBid(newMinBid);
+          await auction.updateMinBid(newMinBid);
 
-        expect((await auction.minBid()).toString()).eq(newMinBid.toString());
+          expect((await auction.minBid()).toString()).eq(newMinBid.toString());
+        });
       });
     });
   });
 
   describe('#updateTimeBuffer', () => {
-    describe('when a non-owner tries to call the function', () => {
-      it('should revert', async () => {
-        const auction = await auctionAs(otherWallet);
+    describe('sad path', () => {
+      describe('when a non-owner tries to call the function', () => {
+        it('should revert', async () => {
+          const auction = await auctionAs(otherWallet);
 
-        const newTimeBuffer = 1;
+          const newTimeBuffer = 1;
 
-        await expect(auction.updateTimeBuffer(newTimeBuffer)).rejectedWith(
-          ERROR_MESSAGES.NOT_OWNER
-        );
+          await expect(auction.updateTimeBuffer(newTimeBuffer)).rejectedWith(
+            ERROR_MESSAGES.NOT_OWNER
+          );
+        });
       });
     });
 
-    describe('when called by the owner', () => {
-      it('should update the min bid', async () => {
-        const auction = await auctionAs(deployerWallet);
+    describe('happy path', () => {
+      describe('when called by the owner', () => {
+        it('should update the min bid', async () => {
+          const auction = await auctionAs(deployerWallet);
 
-        const defaultTimeBuffer = 60 * 15; // 15 minutes
+          const defaultTimeBuffer = 60 * 15; // 15 minutes
 
-        expect(await (await auction.timeBuffer()).toNumber()).eq(
-          defaultTimeBuffer
-        );
+          expect(await (await auction.timeBuffer()).toNumber()).eq(
+            defaultTimeBuffer
+          );
 
-        const newTimeBuffer = 60 + 5; // 5 minutes
+          const newTimeBuffer = 60 + 5; // 5 minutes
 
-        await auction.updateTimeBuffer(newTimeBuffer);
+          await auction.updateTimeBuffer(newTimeBuffer);
 
-        expect(await (await auction.timeBuffer()).toNumber()).eq(newTimeBuffer);
+          expect(await (await auction.timeBuffer()).toNumber()).eq(
+            newTimeBuffer
+          );
+        });
       });
     });
+  });
+
+  describe('#createAuction', () => {
+    describe('sad path', () => {});
   });
 });

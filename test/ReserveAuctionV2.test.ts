@@ -171,20 +171,20 @@ describe('ReserveAuctionV2', () => {
 
     describe('happy path', () => {
       describe('when the passed in address does meet the NFT standard', () => {
-        it('should set the zora address', async () => {
+        it('should set the NftContract address', async () => {
           const auction = await auctionAs(deployerWallet);
-          expect(await auction.zora()).eq(mediaAddress);
+          expect(await auction.NftContract()).eq(mediaAddress);
         });
       });
     });
   });
 
-  describe('#updateZora', () => {
+  describe('#updateNftContract', () => {
     describe('sad path', () => {
       describe('when a non-owner tries to call the function', () => {
         it('should revert', async () => {
           const auction = await auctionAs(otherWallet);
-          await expect(auction.updateZora(mediaAddress)).rejectedWith(
+          await expect(auction.updateNftContract(mediaAddress)).rejectedWith(
             ERROR_MESSAGES.NOT_OWNER
           );
         });
@@ -193,26 +193,26 @@ describe('ReserveAuctionV2', () => {
 
     describe('happy path', () => {
       describe('when the passed in address does meet the NFT standard', () => {
-        it('should set the zora address', async () => {
+        it('should set the NftContract address', async () => {
           const auction = await auctionAs(deployerWallet);
 
-          expect(await auction.zora()).eq(mediaAddress);
+          expect(await auction.NftContract()).eq(mediaAddress);
 
           const newMediaContract = await (
             await new MediaFactory(deployerWallet).deploy(marketAddress)
           ).deployed();
 
-          await auction.updateZora(newMediaContract.address);
+          await auction.updateNftContract(newMediaContract.address);
 
-          expect(await auction.zora()).eq(newMediaContract.address);
+          expect(await auction.NftContract()).eq(newMediaContract.address);
         });
       });
     });
 
-    // Reset zora address so other tests don't break
+    // Reset NftContract address so other tests don't break
     after(async () => {
       const auction = await auctionAs(deployerWallet);
-      await auction.updateZora(mediaAddress);
+      await auction.updateNftContract(mediaAddress);
     });
   });
 
@@ -372,7 +372,7 @@ describe('ReserveAuctionV2', () => {
         it('should emit the AuctionCreated event', () => {
           const {
             tokenId: tokenIdFromEvent,
-            zoraAddress,
+            NftContractAddress,
             duration: durationFromEvent,
             reservePrice: reservePriceFromEvent,
             creator,
@@ -381,7 +381,7 @@ describe('ReserveAuctionV2', () => {
 
           expect(event.event).eq('AuctionCreated');
           expect(tokenIdFromEvent.toNumber()).eq(tokenId);
-          expect(zoraAddress).eq(mediaAddress);
+          expect(NftContractAddress).eq(mediaAddress);
           expect(durationFromEvent.toNumber()).eq(duration);
           expect(reservePriceFromEvent.toString()).eq(reservePrice.toString());
           expect(creator).eq(creatorWallet.address);

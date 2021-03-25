@@ -18,7 +18,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     uint256 public timeBuffer = 15 * 60; // extend 15 minutes after every bid made in last 15 minutes
     uint256 public minBid = 1 * 10**16; // 0.01 ETH
 
-    address public zora;
+    address public NftContract;
 
     bytes4 constant interfaceId = 0x80ac58cd; // 721 interface id
 
@@ -37,27 +37,27 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     event AuctionCreated(
         uint256 indexed tokenId,
-        address zoraAddress,
+        address NftContractAddress,
         uint256 duration,
         uint256 reservePrice,
         address creator,
         address fundsRecipient
     );
 
-    constructor(address _zora) public {
+    constructor(address _NftContract) public {
         require(
-            IERC165(_zora).supportsInterface(interfaceId),
+            IERC165(_NftContract).supportsInterface(interfaceId),
             "Doesn't support NFT interface"
         );
-        zora = _zora;
+        NftContract = _NftContract;
     }
 
-    function updateZora(address _zora) external onlyOwner {
+    function updateNftContract(address _NftContract) external onlyOwner {
         require(
-            IERC165(_zora).supportsInterface(interfaceId),
+            IERC165(_NftContract).supportsInterface(interfaceId),
             "Doesn't support NFT interface"
         );
-        zora = _zora;
+        NftContract = _NftContract;
     }
 
     function updateMinBid(uint256 _minBid) external onlyOwner {
@@ -85,7 +85,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
         emit AuctionCreated(
             tokenId,
-            zora,
+            NftContract,
             duration,
             reservePrice,
             creator,

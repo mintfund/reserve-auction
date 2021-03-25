@@ -83,6 +83,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         auctions[tokenId].creator = creator;
         auctions[tokenId].fundsRecipient = fundsRecipient;
 
+        IERC721(NftContract).transferFrom(creator, address(this), tokenId);
+
         emit AuctionCreated(
             tokenId,
             NftContract,

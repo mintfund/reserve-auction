@@ -12,7 +12,7 @@ import {
 import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
 import { Wallet } from '@ethersproject/wallet';
-import { BigNumber, Bytes, ethers } from 'ethers';
+import { BigNumber, Bytes, ContractTransaction, ethers } from 'ethers';
 import { sha256 } from 'ethers/lib/utils';
 import { signPermit } from './utils';
 
@@ -139,6 +139,54 @@ async function mintTokenAs(wallet: Wallet) {
 
 async function auctionAs(wallet: Wallet): Promise<ReserveAuctionV2> {
   return ReserveAuctionV2Factory.connect(auctionAddress, wallet);
+}
+
+interface IAuctionData {
+  tokenId: number;
+  reservePrice: BigNumber;
+  duration: number;
+}
+
+async function setupAuctionData(): Promise<IAuctionData> {
+  const token = await mintTokenAs(creatorWallet);
+
+  const tokenId = token.toNumber();
+  const duration = 60 * 60 * 24; // 24 hours
+  const reservePrice = BigNumber.from(10).pow(18); // 1 ETH
+
+  return {
+    tokenId,
+    duration,
+    reservePrice,
+  };
+}
+
+async function setupAuction({
+  tokenId,
+  reservePrice,
+  duration,
+}: IAuctionData): Promise<ContractTransaction> {
+  const chainId = 1;
+  const auctionAsCreator = await auctionAs(creatorWallet);
+  const nftContractAsCreator = await mediaAs(creatorWallet);
+
+  const sig = await signPermit(
+    creatorWallet,
+    auctionAddress,
+    mediaAddress,
+    tokenId,
+    chainId
+  );
+
+  await nftContractAsCreator.permit(auctionAddress, tokenId, sig);
+
+  return auctionAsCreator.createAuction(
+    tokenId,
+    duration,
+    reservePrice,
+    creatorWallet.address,
+    fundsRecipientWallet.address
+  );
 }
 
 describe('ReserveAuctionV2', () => {
@@ -298,28 +346,19 @@ describe('ReserveAuctionV2', () => {
 
     describe('sad path', () => {
       describe('when the auction already exists', () => {
-        let auctionAsCreator: ReserveAuctionV2;
-        let tokenId, duration, reservePrice;
-
-        before(async () => {
-          auctionAsCreator = await auctionAs(creatorWallet);
-
-          tokenId = (await mintTokenAs(creatorWallet)).toNumber();
-          duration = 60 * 60 * 24; // 24 hours
-          reservePrice = BigNumber.from(10).pow(18); // 1 ETH
+        it('should revert', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
 
           await (
-            await auctionAsCreator.createAuction(
+            await setupAuction({
               tokenId,
               duration,
               reservePrice,
-              creatorWallet.address,
-              fundsRecipientWallet.address
-            )
+            })
           ).wait();
-        });
 
-        it('should revert', async () => {
+          const auctionAsCreator = await auctionAs(creatorWallet);
+
           await expect(
             auctionAsCreator.createAuction(
               tokenId,
@@ -335,59 +374,16 @@ describe('ReserveAuctionV2', () => {
 
     describe('happy path', () => {
       describe('when an auction is created', () => {
-        let auctionAsCreator: ReserveAuctionV2;
-        let tokenId,
-          duration,
-          reservePrice,
-          event,
-          nftOwnerBeforeCreateAuction,
-          nftOwnerAfterCreateAuction;
-
-        beforeEach(async () => {
-          const chainId = 1;
-          const token = await mintTokenAs(creatorWallet);
-
-          tokenId = token.toNumber();
-          duration = 60 * 60 * 24; // 24 hours
-          reservePrice = BigNumber.from(10).pow(18); // 1 ETH
-
-          auctionAsCreator = await auctionAs(creatorWallet);
-
-          const nftContractAsCreator = await mediaAs(creatorWallet);
-
-          nftOwnerBeforeCreateAuction = await nftContractAsCreator.ownerOf(
-            tokenId
-          );
-
-          const sig = await signPermit(
-            creatorWallet,
-            auctionAddress,
-            mediaAddress,
-            tokenId,
-            chainId
-          );
-
-          const media = await mediaAs(creatorWallet);
-          await media.permit(auctionAddress, tokenId, sig);
-
-          const tx = await (
-            await auctionAsCreator.createAuction(
-              tokenId,
-              duration,
-              reservePrice,
-              creatorWallet.address,
-              fundsRecipientWallet.address
-            )
-          ).wait();
-
-          event = tx.events[0];
-
-          nftOwnerAfterCreateAuction = await nftContractAsCreator.ownerOf(
-            tokenId
-          );
-        });
-
         it('should set the attributes correctly', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsCreator = await auctionAs(creatorWallet);
           const auction = await auctionAsCreator.auctions(tokenId);
 
           expect(auction.exists).eq(true);
@@ -397,12 +393,43 @@ describe('ReserveAuctionV2', () => {
           expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
         });
 
-        it.only('should transfer the NFT to the auction', async () => {
+        it('should transfer the NFT to the auction', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          const nftContractAsCreator = await mediaAs(creatorWallet);
+
+          const nftOwnerBeforeCreateAuction = await nftContractAsCreator.ownerOf(
+            tokenId
+          );
+
           expect(nftOwnerBeforeCreateAuction).eq(creatorWallet.address);
+
+          await setupAuction({
+            tokenId,
+            duration,
+            reservePrice,
+          });
+
+          const nftOwnerAfterCreateAuction = await nftContractAsCreator.ownerOf(
+            tokenId
+          );
+
           expect(nftOwnerAfterCreateAuction).eq(auctionAddress);
         });
 
-        it('should emit the AuctionCreated event', () => {
+        it('should emit the AuctionCreated event', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          const tx = await (
+            await setupAuction({
+              tokenId,
+              duration,
+              reservePrice,
+            })
+          ).wait();
+
+          const event = tx.events[3];
+
           const {
             tokenId: tokenIdFromEvent,
             NftContractAddress,
@@ -423,4 +450,22 @@ describe('ReserveAuctionV2', () => {
       });
     });
   });
+
+  //   describe('#createBid', () => {
+  //     describe('sad path', () => {
+  //       describe("when the auction doesn't exist", () => {
+  //         it('should revert', () => {});
+  //       });
+  //     });
+
+  //     describe('happy path', () => {
+  //       it('should send the ETH amount to the reserve contract', () => {});
+
+  //       it('should emit the AuctionBid event', () => {});
+
+  //       describe('when there is an existing bid', () => {
+  //         it('should refund the previous bidder', () => {});
+  //       });
+  //     });
+  //   });
 });

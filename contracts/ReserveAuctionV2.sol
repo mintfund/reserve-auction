@@ -59,6 +59,12 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         bool extended
     );
 
+    event AuctionCanceled(
+        uint256 indexed tokenId,
+        address NftContract,
+        address creator
+    );
+
     constructor(address _NftContract) public {
         require(
             IERC165(_NftContract).supportsInterface(interfaceId),
@@ -182,5 +188,21 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         if (!firstBid) {
             lastBidder.transfer(amount);
         }
+    }
+
+    function cancelAuction(uint256 tokenId) external nonReentrant {
+        require(auctions[tokenId].exists, "Auction doesn't exist");
+        require(
+            auctions[tokenId].creator == msg.sender,
+            "Can only be called by auction creator"
+        );
+        require(
+            uint256(auctions[tokenId].firstBidTime) == 0,
+            "Auction already started"
+        );
+        address creator = auctions[tokenId].creator;
+        delete auctions[tokenId];
+        IERC721(NftContract).transferFrom(address(this), creator, tokenId);
+        emit AuctionCanceled(tokenId, NftContract, creator);
     }
 }

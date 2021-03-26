@@ -30,6 +30,8 @@ const ERROR_MESSAGES = {
   AUCTION_EXPIRED: 'Auction expired',
   BID_TOO_LOW: 'Must send more than last bid',
   NOT_MIN_BID: 'Must send more than last bid by minBid amount',
+  ONLY_AUCTION_CREATOR: 'Can only be called by auction creator',
+  AUCTION_ALREADY_STARTED: 'Auction already started',
 };
 
 let contentHex: string;
@@ -672,6 +674,138 @@ describe('ReserveAuctionV2', () => {
         expect(auctionBidEvent.args.NftContractAddress).eq(mediaAddress);
         expect(auctionBidEvent.args.sender).eq(firstBidderWallet.address);
         expect(auctionBidEvent.args.value.toString()).eq(oneETH().toString());
+      });
+    });
+  });
+
+  describe('#cancelAuction', () => {
+    describe('sad path', () => {
+      describe("when the auction doesn't exist", () => {
+        it('should revert', async () => {
+          const auctionAsBidder = await auctionAs(firstBidderWallet);
+          await expect(auctionAsBidder.cancelAuction(0)).rejectedWith(
+            ERROR_MESSAGES.AUCTION_DOESNT_EXIST
+          );
+        });
+      });
+
+      describe('when the sender is not the creator', () => {
+        it('should revert', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsOther = await auctionAs(otherWallet);
+
+          await expect(auctionAsOther.cancelAuction(tokenId)).rejectedWith(
+            ERROR_MESSAGES.ONLY_AUCTION_CREATOR
+          );
+        });
+      });
+
+      describe('when a bid has already been sent', () => {
+        it('should revert', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+          await auctionAsBidder.createBid(tokenId, oneETH(), {
+            value: oneETH(),
+          });
+
+          const auctionAsCreator = await auctionAs(creatorWallet);
+
+          await expect(auctionAsCreator.cancelAuction(tokenId)).rejectedWith(
+            ERROR_MESSAGES.AUCTION_ALREADY_STARTED
+          );
+        });
+      });
+    });
+
+    describe('happy path', () => {
+      it('should delete the auction', async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const auctionAsCreator = await auctionAs(creatorWallet);
+
+        await auctionAsCreator.cancelAuction(tokenId);
+
+        const auction = await auctionAsCreator.auctions(tokenId);
+
+        expect(auction.exists).eq(false);
+      });
+
+      it('should transfer the NFT back to the creator', async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        const nftContractAsCreator = await mediaAs(creatorWallet);
+
+        const nftOwnerBeforeCreateAuction = await nftContractAsCreator.ownerOf(
+          tokenId
+        );
+
+        expect(nftOwnerBeforeCreateAuction).eq(creatorWallet.address);
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const nftOwnerAfterCreateAuction = await nftContractAsCreator.ownerOf(
+          tokenId
+        );
+
+        expect(nftOwnerAfterCreateAuction).eq(auctionAddress);
+
+        const auctionAsCreator = await auctionAs(creatorWallet);
+
+        await auctionAsCreator.cancelAuction(tokenId);
+
+        const nftOwnerAfterCancelAuction = await nftContractAsCreator.ownerOf(
+          tokenId
+        );
+
+        expect(nftOwnerAfterCancelAuction).eq(creatorWallet.address);
+      });
+
+      it.only('should emit the AuctionCanceled event', async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const auctionAsCreator = await auctionAs(creatorWallet);
+
+        const { events } = await (
+          await auctionAsCreator.cancelAuction(tokenId)
+        ).wait();
+
+        const auctionCanceledEvent = events[3];
+
+        expect(auctionCanceledEvent.event).eq('AuctionCanceled');
+        expect(auctionCanceledEvent.args.tokenId.toNumber()).eq(tokenId);
+        expect(auctionCanceledEvent.args.NftContract).eq(mediaAddress);
+        expect(auctionCanceledEvent.args.creator).eq(creatorWallet.address);
       });
     });
   });

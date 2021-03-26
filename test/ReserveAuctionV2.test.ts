@@ -25,6 +25,11 @@ const ERROR_MESSAGES = {
   NOT_NFT: "Doesn't support NFT interface",
   NOT_OWNER: 'Ownable: caller is not the owner',
   AUCTION_ALREADY_EXISTS: 'Auction already exists',
+  AUCTION_DOESNT_EXIST: "Auction doesn't exist",
+  INVALID_AMOUNT: "Amount doesn't equal msg.value",
+  AUCTION_EXPIRED: 'Auction expired',
+  BID_TOO_LOW: 'Must send more than last bid',
+  NOT_MIN_BID: 'Must send more than last bid by minBid amount',
 };
 
 let contentHex: string;
@@ -68,8 +73,22 @@ const [
   deployerWallet,
   creatorWallet,
   fundsRecipientWallet,
+  firstBidderWallet,
+  secondBidderWallet,
   otherWallet,
 ] = generatedWallets(provider);
+
+function twoETH(): BigNumber {
+  return BigNumber.from(10).mul(18).mul(2);
+}
+
+function oneETH(): BigNumber {
+  return BigNumber.from(10).mul(18);
+}
+
+function halfETH(): BigNumber {
+  return BigNumber.from(10).mul(18).div(0.5);
+}
 
 async function deploy() {
   const market = await (
@@ -152,7 +171,7 @@ async function setupAuctionData(): Promise<IAuctionData> {
 
   const tokenId = token.toNumber();
   const duration = 60 * 60 * 24; // 24 hours
-  const reservePrice = BigNumber.from(10).pow(18); // 1 ETH
+  const reservePrice = oneETH();
 
   return {
     tokenId,
@@ -451,21 +470,209 @@ describe('ReserveAuctionV2', () => {
     });
   });
 
-  //   describe('#createBid', () => {
-  //     describe('sad path', () => {
-  //       describe("when the auction doesn't exist", () => {
-  //         it('should revert', () => {});
-  //       });
-  //     });
+  describe('#createBid', () => {
+    beforeEach(async () => {
+      await blockchain.resetAsync();
+    });
 
-  //     describe('happy path', () => {
-  //       it('should send the ETH amount to the reserve contract', () => {});
+    describe('sad path', () => {
+      describe("when the auction doesn't exist", () => {
+        it('should revert', async () => {
+          const auctionAsCreator = await auctionAs(creatorWallet);
+          const tokenId = 1;
+          const amount = oneETH();
 
-  //       it('should emit the AuctionBid event', () => {});
+          await expect(
+            auctionAsCreator.createBid(tokenId, amount, { value: oneETH() })
+          ).rejectedWith(ERROR_MESSAGES.AUCTION_DOESNT_EXIST);
+        });
+      });
 
-  //       describe('when there is an existing bid', () => {
-  //         it('should refund the previous bidder', () => {});
-  //       });
-  //     });
-  //   });
+      describe('when the auction does exist', () => {
+        describe("when the amount passed in doesn't equal msg.value", () => {
+          it('should revert', async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              reservePrice,
+              duration,
+            });
+
+            const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+            const twoETHBN = twoETH();
+
+            await expect(
+              auctionAsBidder.createBid(tokenId, reservePrice, {
+                value: twoETHBN,
+              })
+            ).rejectedWith(ERROR_MESSAGES.INVALID_AMOUNT);
+          });
+        });
+
+        describe('when the amount passed in is less than the previous bid amount', () => {
+          it('should revert', async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              reservePrice,
+              duration,
+            });
+
+            const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
+
+            await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
+              value: oneETH(),
+            });
+
+            const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+            await expect(
+              auctionAsSecondBidder.createBid(tokenId, oneETH(), {
+                value: oneETH(),
+              })
+            ).rejectedWith(ERROR_MESSAGES.BID_TOO_LOW);
+          });
+        });
+
+        describe('when the amount passed in is less than the minBid amount', () => {
+          it('should revert', async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              reservePrice,
+              duration,
+            });
+
+            const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
+
+            await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
+              value: oneETH(),
+            });
+
+            const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+            const smallAmount = oneETH().add(BigNumber.from(10).mul(10));
+
+            await expect(
+              auctionAsSecondBidder.createBid(tokenId, smallAmount, {
+                value: smallAmount,
+              })
+            ).rejectedWith(ERROR_MESSAGES.NOT_MIN_BID);
+          });
+        });
+
+        describe('when the auction is over', () => {
+          it('should revert', async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              reservePrice,
+              duration,
+            });
+
+            const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+            await auctionAsBidder.createBid(tokenId, oneETH(), {
+              value: oneETH(),
+            });
+
+            blockchain.increaseTimeAsync(duration);
+
+            await expect(
+              auctionAsBidder.createBid(tokenId, oneETH(), {
+                value: oneETH(),
+              })
+            ).rejectedWith(ERROR_MESSAGES.AUCTION_EXPIRED);
+          });
+        });
+      });
+    });
+
+    describe('happy path', () => {
+      describe('when there is an existing bid', () => {
+        it('should refund the previous bidder', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
+
+          const originalBalance = await firstBidderWallet.getBalance();
+
+          await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
+            value: oneETH().toString(),
+          });
+
+          const postBidBalance = await firstBidderWallet.getBalance();
+
+          expect(postBidBalance.toString()).eq(
+            originalBalance.sub(oneETH()).toString()
+          );
+
+          const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+          await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+            value: twoETH().toString(),
+          });
+
+          const currentBalance = await firstBidderWallet.getBalance();
+
+          expect(currentBalance.toString()).eq(originalBalance.toString());
+        });
+      });
+    });
+
+    describe('when the transaction succeeds', () => {
+      it('should emit an AuctionBid event', async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+        const { events } = await (
+          await auctionAsBidder.createBid(tokenId, oneETH(), {
+            value: oneETH(),
+          })
+        ).wait();
+
+        const [auctionBidEvent] = events;
+
+        expect(auctionBidEvent.event).eq('AuctionBid');
+        expect(auctionBidEvent.args.tokenId.toNumber()).eq(tokenId);
+        expect(auctionBidEvent.args.NftContractAddress).eq(mediaAddress);
+        expect(auctionBidEvent.args.sender).eq(firstBidderWallet.address);
+        expect(auctionBidEvent.args.value.toString()).eq(oneETH().toString());
+      });
+    });
+  });
 });

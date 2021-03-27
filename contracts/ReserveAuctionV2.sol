@@ -1,10 +1,9 @@
-// SPDX-License-Identifier: Apache-2.0
+// SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity 0.6.8;
 pragma experimental ABIEncoderV2;
 
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-
 import {IMarket} from "./interfaces/IMarket.sol";
 import {IERC165} from "@openzeppelin/contracts/introspection/IERC165.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -17,18 +16,33 @@ contract IMediaModified {
     address public marketContract;
 }
 
+interface IWETH {
+    function deposit() external payable;
+
+    function transfer(address to, uint256 value) external returns (bool);
+}
+
 contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
 
-    uint256 public timeBuffer = 15 * 60; // extend 15 minutes after every bid made in last 15 minutes
-    uint256 public minBid = 1 * 10**16; // 0.01 ETH
+    //======= Constants =======
 
-    address public NftContract;
+    bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
+    // 15 min
+    uint16 public constant TIME_BUFFER = 900;
+    // 0.01 ETH
+    uint64 public constant MIN_BID = 1e15;
 
-    bytes4 constant interfaceId = 0x80ac58cd; // 721 interface id
+    //======= Immutable Storage =======
+
+    address public nftContract;
+    address public immutable wethAddress;
+
+    //======= Mutable Storage =======
 
     mapping(uint256 => Auction) public auctions;
 
+    //======= Structs =======
     struct Auction {
         bool exists;
         uint256 amount;
@@ -40,9 +54,10 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address payable fundsRecipient;
     }
 
+    //======= Events =======
     event AuctionCreated(
         uint256 indexed tokenId,
-        address NftContractAddress,
+        address nftContractAddress,
         uint256 duration,
         uint256 reservePrice,
         address creator,
@@ -51,7 +66,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     event AuctionBid(
         uint256 indexed tokenId,
-        address NftContractAddress,
+        address nftContractAddress,
         address sender,
         uint256 value,
         uint256 timestamp,
@@ -61,32 +76,19 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     event AuctionCanceled(
         uint256 indexed tokenId,
-        address NftContract,
+        address nftContract,
         address creator
     );
 
-    constructor(address _NftContract) public {
+    //======= Constructor =======
+
+    constructor(address nftContract_, address wethAddress_) public {
         require(
-            IERC165(_NftContract).supportsInterface(interfaceId),
+            IERC165(nftContract_).supportsInterface(ERC721_INTERFACE_ID),
             "Doesn't support NFT interface"
         );
-        NftContract = _NftContract;
-    }
-
-    function updateNftContract(address _NftContract) external onlyOwner {
-        require(
-            IERC165(_NftContract).supportsInterface(interfaceId),
-            "Doesn't support NFT interface"
-        );
-        NftContract = _NftContract;
-    }
-
-    function updateMinBid(uint256 _minBid) external onlyOwner {
-        minBid = _minBid;
-    }
-
-    function updateTimeBuffer(uint256 _timeBuffer) external onlyOwner {
-        timeBuffer = _timeBuffer;
+        nftContract = nftContract_;
+        wethAddress = wethAddress_;
     }
 
     function createAuction(
@@ -104,11 +106,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         auctions[tokenId].creator = creator;
         auctions[tokenId].fundsRecipient = fundsRecipient;
 
-        IERC721(NftContract).transferFrom(creator, address(this), tokenId);
+        IERC721(nftContract).transferFrom(creator, address(this), tokenId);
 
         emit AuctionCreated(
             tokenId,
-            NftContract,
+            nftContract,
             duration,
             reservePrice,
             creator,
@@ -142,8 +144,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         if (lastValue != 0) {
             require(amount > lastValue, "Must send more than last bid");
             require(
-                amount.sub(lastValue) > minBid,
-                "Must send more than last bid by minBid amount"
+                amount.sub(lastValue) > MIN_BID,
+                "Must send more than last bid by MIN_BID amount"
             );
             lastBidder = auctions[tokenId].bidder;
         } else {
@@ -152,7 +154,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         }
 
         require(
-            IMarket(IMediaModified(NftContract).marketContract()).isValidBid(
+            IMarket(IMediaModified(nftContract).marketContract()).isValidBid(
                 tokenId,
                 amount
             ),
@@ -165,19 +167,19 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         bool extended = false;
         // at this point we know that the timestamp is less than start + duration
         // we want to know by how much the timestamp is less than start + duration
-        // if the difference is less than the timeBuffer, increase the duration by the timeBuffer
+        // if the difference is less than the TIME_BUFFER, increase the duration by the TIME_BUFFER
         if (
             auctions[tokenId].firstBidTime.add(auctions[tokenId].duration).sub(
                 block.timestamp
-            ) < timeBuffer
+            ) < TIME_BUFFER
         ) {
-            auctions[tokenId].duration += timeBuffer;
+            auctions[tokenId].duration += TIME_BUFFER;
             extended = true;
         }
 
         emit AuctionBid(
             tokenId,
-            NftContract,
+            nftContract,
             msg.sender,
             amount,
             block.timestamp,
@@ -186,8 +188,26 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
 
         if (!firstBid) {
-            lastBidder.transfer(amount);
+            transferETHOrWETH(lastBidder, amount);
         }
+    }
+
+    function transferETHOrWETH(address to, uint256 value) internal {
+        // Try to transfer ETH to the given recipient.
+        if (!safeTransferETH(to, value)) {
+            // If the transfer fails, wrap and send as WETH, so that
+            // the auction is not impeded.
+            IWETH(wethAddress).deposit{value: value}();
+            IWETH(wethAddress).transfer(to, value);
+        }
+    }
+
+    function safeTransferETH(address to, uint256 value)
+        internal
+        returns (bool)
+    {
+        (bool success, ) = to.call{value: value}(new bytes(0));
+        return success;
     }
 
     function cancelAuction(uint256 tokenId) external nonReentrant {
@@ -202,7 +222,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
         address creator = auctions[tokenId].creator;
         delete auctions[tokenId];
-        IERC721(NftContract).transferFrom(address(this), creator, tokenId);
-        emit AuctionCanceled(tokenId, NftContract, creator);
+        IERC721(nftContract).transferFrom(address(this), creator, tokenId);
+        emit AuctionCanceled(tokenId, nftContract, creator);
     }
 }

@@ -83,15 +83,15 @@ const [
 ] = generatedWallets(provider);
 
 function twoETH(): BigNumber {
-  return BigNumber.from(10).mul(18).mul(2);
+  return BigNumber.from(10).pow(18).mul(2);
 }
 
 function oneETH(): BigNumber {
-  return BigNumber.from(10).mul(18);
+  return BigNumber.from(10).pow(18);
 }
 
 function halfETH(): BigNumber {
-  return BigNumber.from(10).mul(18).div(0.5);
+  return BigNumber.from(10).pow(18).div(0.5);
 }
 
 async function deploy() {
@@ -234,6 +234,15 @@ async function resetBlockchain() {
 
   otherContentHex = ethers.utils.formatBytes32String('otherthing');
   otherContentHash = await sha256(otherContentHex);
+}
+
+async function getGasAmountFromTx(tx) {
+  const txReceipt = await tx.wait();
+
+  const gasUsed = txReceipt.gasUsed;
+  const gasPrice = tx.gasPrice;
+
+  return gasUsed.mul(gasPrice);
 }
 
 describe('ReserveAuctionV2', () => {
@@ -532,30 +541,54 @@ describe('ReserveAuctionV2', () => {
 
           const originalBalance = await firstBidderWallet.getBalance();
 
-          await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
-            value: oneETH().toString(),
+          const tx = await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
+            value: oneETH(),
           });
+
+          const gasAmount = await getGasAmountFromTx(tx);
 
           const postBidBalance = await firstBidderWallet.getBalance();
 
           expect(postBidBalance.toString()).eq(
-            originalBalance.sub(oneETH()).toString()
+            originalBalance.sub(gasAmount).sub(oneETH()).toString()
           );
 
           const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
 
           await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-            value: twoETH().toString(),
+            value: twoETH(),
           });
 
           const currentBalance = await firstBidderWallet.getBalance();
 
-          expect(currentBalance.toString()).eq(originalBalance.toString());
+          expect(currentBalance.toString()).eq(
+            originalBalance.sub(gasAmount).toString()
+          );
         });
       });
     });
 
     describe('when the transaction succeeds', () => {
+      it('should set the amount to the last bid', async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+        await auctionAsBidder.createBid(tokenId, twoETH(), {
+          value: twoETH(),
+        });
+
+        const auction = await auctionAsBidder.auctions(tokenId);
+
+        expect(auction.amount.toString()).eq(twoETH().toString());
+      });
+
       it('should emit an AuctionBid event', async () => {
         const { tokenId, reservePrice, duration } = await setupAuctionData();
 

@@ -30,7 +30,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
     // 15 min
     uint16 public constant TIME_BUFFER = 900;
-    // 0.01 ETH
+    // 0.001 ETH
     uint64 public constant MIN_BID = 1e15;
 
     //======= Immutable Storage =======
@@ -188,7 +188,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
 
         if (!firstBid) {
-            transferETHOrWETH(lastBidder, amount);
+            transferETHOrWETH(lastBidder, lastValue);
         }
     }
 

@@ -76,7 +76,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     event AuctionCanceled(
         uint256 indexed tokenId,
-        address nftContract,
+        address nftContractAddress,
         address creator
     );
 

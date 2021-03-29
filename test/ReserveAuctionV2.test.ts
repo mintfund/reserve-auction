@@ -8,6 +8,7 @@ import {
   ReserveAuctionV2,
   ReserveAuctionV2Factory,
   Media,
+  WethFactory,
 } from '../typechain';
 import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
@@ -29,7 +30,7 @@ const ERROR_MESSAGES = {
   INVALID_AMOUNT: "Amount doesn't equal msg.value",
   AUCTION_EXPIRED: 'Auction expired',
   BID_TOO_LOW: 'Must send more than last bid',
-  NOT_MIN_BID: 'Must send more than last bid by minBid amount',
+  NOT_MIN_BID: 'Must send more than last bid by MIN_BID amount',
   ONLY_AUCTION_CREATOR: 'Can only be called by auction creator',
   AUCTION_ALREADY_STARTED: 'Auction already started',
 };
@@ -46,6 +47,7 @@ let metadataHashBytes: Bytes;
 let marketAddress: string;
 let mediaAddress: string;
 let auctionAddress: string;
+let wethAddress: string;
 
 let tokenURI = 'www.example.com';
 let metadataURI = 'www.example2.com';
@@ -107,8 +109,17 @@ async function deploy() {
 
   await market.configure(mediaAddress);
 
+  const weth = await (
+    await new WethFactory(deployerWallet).deploy()
+  ).deployed();
+
+  wethAddress = weth.address;
+
   const auction = await (
-    await new ReserveAuctionV2Factory(deployerWallet).deploy(mediaAddress)
+    await new ReserveAuctionV2Factory(deployerWallet).deploy(
+      mediaAddress,
+      wethAddress
+    )
   ).deployed();
 
   auctionAddress = auction.address;
@@ -210,23 +221,23 @@ async function setupAuction({
   );
 }
 
+async function resetBlockchain() {
+  await blockchain.resetAsync();
+
+  metadataHex = ethers.utils.formatBytes32String('{}');
+  metadataHash = await sha256(metadataHex);
+  metadataHashBytes = ethers.utils.arrayify(metadataHash);
+
+  contentHex = ethers.utils.formatBytes32String('invert');
+  contentHash = await sha256(contentHex);
+  contentHashBytes = ethers.utils.arrayify(contentHash);
+
+  otherContentHex = ethers.utils.formatBytes32String('otherthing');
+  otherContentHash = await sha256(otherContentHex);
+}
+
 describe('ReserveAuctionV2', () => {
   beforeEach(async () => {
-    await blockchain.resetAsync();
-
-    metadataHex = ethers.utils.formatBytes32String('{}');
-    metadataHash = await sha256(metadataHex);
-    metadataHashBytes = ethers.utils.arrayify(metadataHash);
-
-    contentHex = ethers.utils.formatBytes32String('invert');
-    contentHash = await sha256(contentHex);
-    contentHashBytes = ethers.utils.arrayify(contentHash);
-
-    otherContentHex = ethers.utils.formatBytes32String('otherthing');
-    otherContentHash = await sha256(otherContentHex);
-  });
-
-  before(async () => {
     await deploy();
   });
 
@@ -234,127 +245,20 @@ describe('ReserveAuctionV2', () => {
     describe('when the passed in address does not meet the NFT standard', () => {
       it.skip('should revert', async () => {
         await expect(
-          new ReserveAuctionV2Factory(deployerWallet).deploy(marketAddress)
+          new ReserveAuctionV2Factory(deployerWallet).deploy(
+            marketAddress,
+            wethAddress
+          )
         ).rejectedWith(ERROR_MESSAGES.NOT_NFT);
       });
     });
 
     describe('happy path', () => {
       describe('when the passed in address does meet the NFT standard', () => {
-        it('should set the NftContract address', async () => {
+        it('should set the variables correctly', async () => {
           const auction = await auctionAs(deployerWallet);
-          expect(await auction.NftContract()).eq(mediaAddress);
-        });
-      });
-    });
-  });
-
-  describe('#updateNftContract', () => {
-    describe('sad path', () => {
-      describe('when a non-owner tries to call the function', () => {
-        it('should revert', async () => {
-          const auction = await auctionAs(otherWallet);
-          await expect(auction.updateNftContract(mediaAddress)).rejectedWith(
-            ERROR_MESSAGES.NOT_OWNER
-          );
-        });
-      });
-    });
-
-    describe('happy path', () => {
-      describe('when the passed in address does meet the NFT standard', () => {
-        it('should set the NftContract address', async () => {
-          const auction = await auctionAs(deployerWallet);
-
-          expect(await auction.NftContract()).eq(mediaAddress);
-
-          const newMediaContract = await (
-            await new MediaFactory(deployerWallet).deploy(marketAddress)
-          ).deployed();
-
-          await auction.updateNftContract(newMediaContract.address);
-
-          expect(await auction.NftContract()).eq(newMediaContract.address);
-        });
-      });
-    });
-
-    // Reset NftContract address so other tests don't break
-    after(async () => {
-      const auction = await auctionAs(deployerWallet);
-      await auction.updateNftContract(mediaAddress);
-    });
-  });
-
-  describe('#updateMinBid', () => {
-    describe('sad path', () => {
-      describe('when a non-owner tries to call the function', () => {
-        it('should revert', async () => {
-          const auction = await auctionAs(otherWallet);
-
-          const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
-
-          await expect(auction.updateMinBid(newMinBid)).rejectedWith(
-            ERROR_MESSAGES.NOT_OWNER
-          );
-        });
-      });
-    });
-
-    describe('happy path', () => {
-      describe('when called by the owner', () => {
-        it('should update the min bid', async () => {
-          const auction = await auctionAs(deployerWallet);
-
-          const defaultMinBid = BigNumber.from(10).pow(16); // 0.01 ETH
-
-          expect((await auction.minBid()).toString()).eq(
-            defaultMinBid.toString()
-          );
-
-          const newMinBid = BigNumber.from(10).pow(17); // 0.1 ETH
-
-          await auction.updateMinBid(newMinBid);
-
-          expect((await auction.minBid()).toString()).eq(newMinBid.toString());
-        });
-      });
-    });
-  });
-
-  describe('#updateTimeBuffer', () => {
-    describe('sad path', () => {
-      describe('when a non-owner tries to call the function', () => {
-        it('should revert', async () => {
-          const auction = await auctionAs(otherWallet);
-
-          const newTimeBuffer = 1;
-
-          await expect(auction.updateTimeBuffer(newTimeBuffer)).rejectedWith(
-            ERROR_MESSAGES.NOT_OWNER
-          );
-        });
-      });
-    });
-
-    describe('happy path', () => {
-      describe('when called by the owner', () => {
-        it('should update the min bid', async () => {
-          const auction = await auctionAs(deployerWallet);
-
-          const defaultTimeBuffer = 60 * 15; // 15 minutes
-
-          expect(await (await auction.timeBuffer()).toNumber()).eq(
-            defaultTimeBuffer
-          );
-
-          const newTimeBuffer = 60 + 5; // 5 minutes
-
-          await auction.updateTimeBuffer(newTimeBuffer);
-
-          expect(await (await auction.timeBuffer()).toNumber()).eq(
-            newTimeBuffer
-          );
+          expect(await auction.nftContract()).eq(mediaAddress);
+          expect(await auction.wethAddress()).eq(wethAddress);
         });
       });
     });
@@ -362,6 +266,7 @@ describe('ReserveAuctionV2', () => {
 
   describe('#createAuction', () => {
     beforeEach(async () => {
+      await resetBlockchain();
       await deploy();
     });
 
@@ -453,7 +358,7 @@ describe('ReserveAuctionV2', () => {
 
           const {
             tokenId: tokenIdFromEvent,
-            NftContractAddress,
+            nftContractAddress,
             duration: durationFromEvent,
             reservePrice: reservePriceFromEvent,
             creator,
@@ -462,7 +367,7 @@ describe('ReserveAuctionV2', () => {
 
           expect(event.event).eq('AuctionCreated');
           expect(tokenIdFromEvent.toNumber()).eq(tokenId);
-          expect(NftContractAddress).eq(mediaAddress);
+          expect(nftContractAddress).eq(mediaAddress);
           expect(durationFromEvent.toNumber()).eq(duration);
           expect(reservePriceFromEvent.toString()).eq(reservePrice.toString());
           expect(creator).eq(creatorWallet.address);
@@ -474,7 +379,8 @@ describe('ReserveAuctionV2', () => {
 
   describe('#createBid', () => {
     beforeEach(async () => {
-      await blockchain.resetAsync();
+      await resetBlockchain();
+      await deploy();
     });
 
     describe('sad path', () => {
@@ -671,7 +577,7 @@ describe('ReserveAuctionV2', () => {
 
         expect(auctionBidEvent.event).eq('AuctionBid');
         expect(auctionBidEvent.args.tokenId.toNumber()).eq(tokenId);
-        expect(auctionBidEvent.args.NftContractAddress).eq(mediaAddress);
+        expect(auctionBidEvent.args.nftContractAddress).eq(mediaAddress);
         expect(auctionBidEvent.args.sender).eq(firstBidderWallet.address);
         expect(auctionBidEvent.args.value.toString()).eq(oneETH().toString());
       });
@@ -679,6 +585,11 @@ describe('ReserveAuctionV2', () => {
   });
 
   describe('#cancelAuction', () => {
+    beforeEach(async () => {
+      await resetBlockchain();
+      await deploy();
+    });
+
     describe('sad path', () => {
       describe("when the auction doesn't exist", () => {
         it('should revert', async () => {
@@ -785,7 +696,7 @@ describe('ReserveAuctionV2', () => {
         expect(nftOwnerAfterCancelAuction).eq(creatorWallet.address);
       });
 
-      it.only('should emit the AuctionCanceled event', async () => {
+      it('should emit the AuctionCanceled event', async () => {
         const { tokenId, reservePrice, duration } = await setupAuctionData();
 
         await setupAuction({
@@ -804,7 +715,7 @@ describe('ReserveAuctionV2', () => {
 
         expect(auctionCanceledEvent.event).eq('AuctionCanceled');
         expect(auctionCanceledEvent.args.tokenId.toNumber()).eq(tokenId);
-        expect(auctionCanceledEvent.args.NftContract).eq(mediaAddress);
+        expect(auctionCanceledEvent.args.nftContractAddress).eq(mediaAddress);
         expect(auctionCanceledEvent.args.creator).eq(creatorWallet.address);
       });
     });

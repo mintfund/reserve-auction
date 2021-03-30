@@ -178,6 +178,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
                 "Must bid reservePrice or more"
             );
         } else {
+            // Check that the new bid is sufficiently higher than the previous bid.
             require(
                 amount.sub(auctions[tokenId].amount) > MIN_BID,
                 "Must send more than last bid by MIN_BID amount"
@@ -190,6 +191,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             );
         }
 
+        // Confirm that this is a valid bid, according to Zora market.
         require(
             IMarket(IMediaModified(nftContract).marketContract()).isValidBid(
                 tokenId,

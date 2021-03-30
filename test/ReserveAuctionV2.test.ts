@@ -327,10 +327,10 @@ describe('ReserveAuctionV2', () => {
           expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
         });
 
-        it("should use 168486 gas", async () => {
+        it("should use 172199 gas", async () => {
           const receipt = await tx.wait();
           const {gasUsed} = receipt;
-          expect(gasUsed.toString()).to.eq("168486");
+          expect(gasUsed.toString()).to.eq("172199");
         });
 
         it('should transfer the NFT to the auction', async () => {

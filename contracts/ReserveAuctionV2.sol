@@ -125,10 +125,15 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address creator,
         address payable fundsRecipient
     ) external nonReentrant auctionNonExistant(tokenId) {
-        auctions[tokenId].duration = duration;
-        auctions[tokenId].reservePrice = reservePrice;
-        auctions[tokenId].creator = creator;
-        auctions[tokenId].fundsRecipient = fundsRecipient;
+        auctions[tokenId] = Auction({
+            amount: 0,
+            duration: duration,
+            firstBidTime: 0,
+            reservePrice: reservePrice,
+            creator: creator,
+            bidder: address(0),
+            fundsRecipient: fundsRecipient
+        });
 
         IERC721(nftContract).transferFrom(creator, address(this), tokenId);
 

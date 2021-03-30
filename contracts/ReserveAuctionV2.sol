@@ -90,6 +90,18 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address payable fundsRecipient
     );
 
+    //======= Modifiers =======
+
+    modifier auctionExists(uint256 tokenId) {
+        require(auctions[tokenId].exists, "Auction doesn't exist");
+        _;
+    }
+
+    modifier auctionNonExistant(uint256 tokenId) {
+        require(!auctions[tokenId].exists, "Auction already exists");
+        _;
+    }
+
     //======= Constructor =======
 
     constructor(address nftContract_, address wethAddress_) public {
@@ -109,9 +121,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         uint256 reservePrice,
         address creator,
         address payable fundsRecipient
-    ) external nonReentrant {
-        require(!auctions[tokenId].exists, "Auction already exists");
-
+    ) external nonReentrant auctionNonExistant(tokenId) {
         auctions[tokenId].exists = true;
         auctions[tokenId].duration = duration;
         auctions[tokenId].reservePrice = reservePrice;
@@ -134,9 +144,9 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         external
         payable
         nonReentrant
+        auctionExists(tokenId)
     {
         require(amount == msg.value, "Amount doesn't equal msg.value");
-        require(auctions[tokenId].exists, "Auction doesn't exist");
         require(
             amount >= auctions[tokenId].reservePrice,
             "Must bid reservePrice or more"
@@ -204,8 +214,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         }
     }
 
-    function endAuction(uint256 tokenId) external nonReentrant {
-        require(auctions[tokenId].exists, "Auction doesn't exist");
+    function endAuction(uint256 tokenId)
+        external
+        nonReentrant
+        auctionExists(tokenId)
+    {
         require(
             uint256(auctions[tokenId].firstBidTime) != 0,
             "Auction hasn't begun"
@@ -257,8 +270,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
     }
 
-    function cancelAuction(uint256 tokenId) external nonReentrant {
-        require(auctions[tokenId].exists, "Auction doesn't exist");
+    function cancelAuction(uint256 tokenId)
+        external
+        nonReentrant
+        auctionExists(tokenId)
+    {
         require(
             auctions[tokenId].creator == msg.sender,
             "Can only be called by auction creator"

@@ -269,7 +269,7 @@ describe('ReserveAuctionV2', () => {
     });
   });
 
-  describe('#createAuction', () => {
+  describe('#createAuction', () => {  
     beforeEach(async () => {
       await resetBlockchain();
       await deploy();
@@ -304,11 +304,13 @@ describe('ReserveAuctionV2', () => {
     });
 
     describe('happy path', () => {
+      let tx;
+
       describe('when an auction is created', () => {
         it('should set the attributes correctly', async () => {
           const { tokenId, reservePrice, duration } = await setupAuctionData();
 
-          await setupAuction({
+          tx = await setupAuction({
             tokenId,
             reservePrice,
             duration,
@@ -322,6 +324,12 @@ describe('ReserveAuctionV2', () => {
           expect(auction.duration.toNumber()).eq(duration);
           expect(auction.creator).eq(creatorWallet.address);
           expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
+        });
+
+        it("should use 189259 gas", async () => {
+          const receipt = await tx.wait();
+          const {gasUsed} = receipt;
+          expect(gasUsed.toString()).to.eq("189259");
         });
 
         it('should transfer the NFT to the auction', async () => {
@@ -587,10 +595,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it("should cost 106293 gas", async () => {
+      it("should cost 106301 gas", async () => {
         const receipt = await tx.wait();
         const {gasUsed} = receipt;
-        expect(gasUsed.toString()).to.eq("106293");
+        expect(gasUsed.toString()).to.eq("106301");
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -845,7 +853,7 @@ describe('ReserveAuctionV2', () => {
             value: twoETH(),
           });
 
-          receipt = await tx.wait();
+          await tx.wait();
           await blockchain.increaseTimeAsync(duration);
 
           const nftContractAsCreator = await mediaAs(creatorWallet);
@@ -866,8 +874,8 @@ describe('ReserveAuctionV2', () => {
             twoETH()
           );
 
-          tx = await auctionAsBidder.endAuction(tokenId);
-          tx.wait();
+          const endAuctionTx = await auctionAsBidder.endAuction(tokenId);
+          receipt = await endAuctionTx.wait();
 
           nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(tokenId);
           auctionAfterEndAuction = await auctionAsBidder.auctions(tokenId);
@@ -900,9 +908,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it("should cost 106293 gas", () => {
+        it("should cost 105629 gas", () => {
             const {gasUsed} = receipt;
-            expect(gasUsed.toString()).to.eq("106293");
+            expect(gasUsed.toString()).to.eq("105629");
         });
       });
     });

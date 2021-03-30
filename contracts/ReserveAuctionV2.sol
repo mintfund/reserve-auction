@@ -243,22 +243,19 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             IMarket(IMediaModified(nftContract).marketContract())
                 .bidSharesForToken(tokenId);
 
-        // solc 6.0 method for casting payable addresses:
         address payable originalCreator =
             payable(
                 address(IMediaModified(nftContract).tokenCreators(tokenId))
             );
-
         uint256 creatorAmount =
             IMarket(IMediaModified(nftContract).marketContract()).splitShare(
                 bidShares.creator,
                 amount
             );
 
-        uint256 sellerAmount = amount.sub(creatorAmount);
-
-        originalCreator.transfer(creatorAmount);
-        fundsRecipient.transfer(sellerAmount);
+        transferETHOrWETH(originalCreator, creatorAmount);
+        // Send the remainder of the amount to the funds recipient.
+        transferETHOrWETH(fundsRecipient, amount.sub(creatorAmount));
 
         emit AuctionEnded(
             tokenId,

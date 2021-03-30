@@ -533,6 +533,8 @@ describe('ReserveAuctionV2', () => {
 
     describe('successful cases', () => {
       describe('when there is an existing bid', () => {
+        let tx;
+
         it('should refund the previous bidder', async () => {
           const { tokenId, reservePrice, duration } = await setupAuctionData();
 
@@ -546,7 +548,7 @@ describe('ReserveAuctionV2', () => {
 
           const originalBalance = await firstBidderWallet.getBalance();
 
-          const tx = await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
+          tx = await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
             value: oneETH(),
           });
 
@@ -569,6 +571,12 @@ describe('ReserveAuctionV2', () => {
           expect(currentBalance.toString()).eq(
             originalBalance.sub(gasAmount).toString()
           );
+        });
+
+        it("should use 106245 gas", async () => {
+          const receipt = await tx.wait();
+          const {gasUsed} = receipt;
+          expect(gasUsed.toString()).to.eq("106245");
         });
       });
     });
@@ -596,10 +604,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it("should cost 106270 gas", async () => {
+      it("should cost 106245 gas", async () => {
         const receipt = await tx.wait();
         const {gasUsed} = receipt;
-        expect(gasUsed.toString()).to.eq("106270");
+        expect(gasUsed.toString()).to.eq("106245");
       });
 
       it('should emit an AuctionBid event', async () => {

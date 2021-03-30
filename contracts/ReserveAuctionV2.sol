@@ -171,7 +171,6 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         require(amount == msg.value, "Amount doesn't equal msg.value");
 
         uint256 previousBidAmount = auctions[tokenId].amount;
-        address payable lastBidder = address(0);
 
         if (previousBidAmount == 0) {
             auctions[tokenId].firstBidTime = block.timestamp;
@@ -187,7 +186,9 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
                 amount.sub(previousBidAmount) > MIN_BID,
                 "Must send more than last bid by MIN_BID amount"
             );
-            lastBidder = auctions[tokenId].bidder;
+
+            // Refund the previous bidder.
+            transferETHOrWETH(auctions[tokenId].bidder, previousBidAmount);
         }
 
         require(
@@ -198,6 +199,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             "Market: ask invalid for share splitting"
         );
 
+        // Update the current auction.
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
 
@@ -223,10 +225,6 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             previousBidAmount == 0,
             extended
         );
-
-        if (previousBidAmount != 0) {
-            transferETHOrWETH(lastBidder, previousBidAmount);
-        }
     }
 
     function endAuction(uint256 tokenId)

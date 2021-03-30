@@ -44,7 +44,6 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     //======= Structs =======
     struct Auction {
-        bool exists;
         uint256 amount;
         uint256 duration;
         uint256 firstBidTime;
@@ -92,13 +91,17 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     //======= Modifiers =======
 
+    // Reverts if the auction does not exist.
     modifier auctionExists(uint256 tokenId) {
-        require(auctions[tokenId].exists, "Auction doesn't exist");
+        // The auction should not be null.
+        require(!_auctionIsNull(tokenId), "Auction doesn't exist");
         _;
     }
 
+    // Reverts if the auction exists.
     modifier auctionNonExistant(uint256 tokenId) {
-        require(!auctions[tokenId].exists, "Auction already exists");
+        // The auction should be null.
+        require(_auctionIsNull(tokenId), "Auction already exists");
         _;
     }
 
@@ -122,7 +125,6 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address creator,
         address payable fundsRecipient
     ) external nonReentrant auctionNonExistant(tokenId) {
-        auctions[tokenId].exists = true;
         auctions[tokenId].duration = duration;
         auctions[tokenId].reservePrice = reservePrice;
         auctions[tokenId].creator = creator;
@@ -307,5 +309,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     {
         (bool success, ) = to.call{value: value}(new bytes(0));
         return success;
+    }
+
+    function _auctionIsNull(uint256 tokenId) internal view returns (bool) {
+        // The auction does not exist if the creator is the null address,
+        // since the NFT would not have been transferred.
+        return auctions[tokenId].creator == address(0);
     }
 }

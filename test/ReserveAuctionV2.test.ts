@@ -23,6 +23,8 @@ chai.use(asPromised);
 const provider = new JsonRpcProvider();
 const blockchain = new Blockchain(provider);
 
+const NULL_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 const ERROR_MESSAGES = {
   NOT_NFT: "Doesn't support NFT interface",
   NOT_OWNER: 'Ownable: caller is not the owner',
@@ -319,17 +321,16 @@ describe('ReserveAuctionV2', () => {
           const auctionAsCreator = await auctionAs(creatorWallet);
           const auction = await auctionAsCreator.auctions(tokenId);
 
-          expect(auction.exists).eq(true);
           expect(auction.reservePrice.toString()).eq(reservePrice.toString());
           expect(auction.duration.toNumber()).eq(duration);
           expect(auction.creator).eq(creatorWallet.address);
           expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
         });
 
-        it("should use 189259 gas", async () => {
+        it("should use 168486 gas", async () => {
           const receipt = await tx.wait();
           const {gasUsed} = receipt;
-          expect(gasUsed.toString()).to.eq("189259");
+          expect(gasUsed.toString()).to.eq("168486");
         });
 
         it('should transfer the NFT to the auction', async () => {
@@ -595,10 +596,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it("should cost 106301 gas", async () => {
+      it("should cost 106334 gas", async () => {
         const receipt = await tx.wait();
         const {gasUsed} = receipt;
-        expect(gasUsed.toString()).to.eq("106301");
+        expect(gasUsed.toString()).to.eq("106334");
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -699,12 +700,9 @@ describe('ReserveAuctionV2', () => {
         });
 
         const auctionAsCreator = await auctionAs(creatorWallet);
-
         await auctionAsCreator.cancelAuction(tokenId);
-
         const auction = await auctionAsCreator.auctions(tokenId);
-
-        expect(auction.exists).eq(false);
+        expect(auction.creator).eq(NULL_ADDRESS)
       });
 
       it('should transfer the NFT back to the creator', async () => {
@@ -884,8 +882,8 @@ describe('ReserveAuctionV2', () => {
         });
 
         it('should delete the auction', () => {
-          expect(auctionBeforeEndAuction.exists).eq(true);
-          expect(auctionAfterEndAuction.exists).eq(false);
+          expect(auctionBeforeEndAuction.creator).eq(creatorWallet.address);
+          expect(auctionAfterEndAuction.creator).eq(NULL_ADDRESS);
         });
 
         it('should transfer the NFT from the auction to the winning bidder', () => {
@@ -908,9 +906,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it("should cost 105629 gas", () => {
+        it("should cost 102739 gas", () => {
             const {gasUsed} = receipt;
-            expect(gasUsed.toString()).to.eq("105629");
+            expect(gasUsed.toString()).to.eq("102739");
         });
       });
     });

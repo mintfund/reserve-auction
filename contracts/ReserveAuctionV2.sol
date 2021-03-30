@@ -80,6 +80,16 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address creator
     );
 
+    event AuctionEnded(
+        uint256 indexed tokenId,
+        address nftContractAddress,
+        address creator,
+        address winner,
+        uint256 amount,
+        address originalCreator,
+        address payable fundsRecipient
+    );
+
     //======= Constructor =======
 
     constructor(address nftContract_, address wethAddress_) public {
@@ -90,6 +100,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         nftContract = nftContract_;
         wethAddress = wethAddress_;
     }
+
+    //======= External Functions =======
 
     function createAuction(
         uint256 tokenId,
@@ -192,22 +204,57 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         }
     }
 
-    function transferETHOrWETH(address to, uint256 value) internal {
-        // Try to transfer ETH to the given recipient.
-        if (!safeTransferETH(to, value)) {
-            // If the transfer fails, wrap and send as WETH, so that
-            // the auction is not impeded.
-            IWETH(wethAddress).deposit{value: value}();
-            IWETH(wethAddress).transfer(to, value);
-        }
-    }
+    function endAuction(uint256 tokenId) external nonReentrant {
+        require(auctions[tokenId].exists, "Auction doesn't exist");
+        require(
+            uint256(auctions[tokenId].firstBidTime) != 0,
+            "Auction hasn't begun"
+        );
+        require(
+            block.timestamp >=
+                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
+            "Auction hasn't completed"
+        );
 
-    function safeTransferETH(address to, uint256 value)
-        internal
-        returns (bool)
-    {
-        (bool success, ) = to.call{value: value}(new bytes(0));
-        return success;
+        address winner = auctions[tokenId].bidder;
+        uint256 amount = auctions[tokenId].amount;
+        address creator = auctions[tokenId].creator;
+        address payable fundsRecipient = auctions[tokenId].fundsRecipient;
+
+        delete auctions[tokenId];
+
+        IERC721(nftContract).transferFrom(address(this), winner, tokenId);
+
+        IMarket.BidShares memory bidShares =
+            IMarket(IMediaModified(nftContract).marketContract())
+                .bidSharesForToken(tokenId);
+
+        // solc 6.0 method for casting payable addresses:
+        address payable originalCreator =
+            payable(
+                address(IMediaModified(nftContract).tokenCreators(tokenId))
+            );
+
+        uint256 creatorAmount =
+            IMarket(IMediaModified(nftContract).marketContract()).splitShare(
+                bidShares.creator,
+                amount
+            );
+
+        uint256 sellerAmount = amount.sub(creatorAmount);
+
+        originalCreator.transfer(creatorAmount);
+        fundsRecipient.transfer(sellerAmount);
+
+        emit AuctionEnded(
+            tokenId,
+            nftContract,
+            creator,
+            winner,
+            amount,
+            originalCreator,
+            fundsRecipient
+        );
     }
 
     function cancelAuction(uint256 tokenId) external nonReentrant {
@@ -224,5 +271,25 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         delete auctions[tokenId];
         IERC721(nftContract).transferFrom(address(this), creator, tokenId);
         emit AuctionCanceled(tokenId, nftContract, creator);
+    }
+
+    //======= Internal Functions =======
+
+    function transferETHOrWETH(address to, uint256 value) internal {
+        // Try to transfer ETH to the given recipient.
+        if (!safeTransferETH(to, value)) {
+            // If the transfer fails, wrap and send as WETH, so that
+            // the auction is not impeded.
+            IWETH(wethAddress).deposit{value: value}();
+            IWETH(wethAddress).transfer(to, value);
+        }
+    }
+
+    function safeTransferETH(address to, uint256 value)
+        internal
+        returns (bool)
+    {
+        (bool success, ) = to.call{value: value}(new bytes(0));
+        return success;
     }
 }

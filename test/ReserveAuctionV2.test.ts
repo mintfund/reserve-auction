@@ -9,6 +9,7 @@ import {
   ReserveAuctionV2Factory,
   Media,
   WethFactory,
+  CrowdfundV2Factory,
 } from '../typechain';
 import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
@@ -33,6 +34,8 @@ const ERROR_MESSAGES = {
   NOT_MIN_BID: 'Must send more than last bid by MIN_BID amount',
   ONLY_AUCTION_CREATOR: 'Can only be called by auction creator',
   AUCTION_ALREADY_STARTED: 'Auction already started',
+  AUCTION_HASNT_BEGUN: "Auction hasn't begun",
+  AUCTION_HASNT_COMPLETED: "Auction hasn't completed",
 };
 
 let contentHex: string;
@@ -127,6 +130,10 @@ async function deploy() {
 
 async function mediaAs(wallet: Wallet) {
   return MediaFactory.connect(mediaAddress, wallet);
+}
+
+async function marketAs(wallet: Wallet) {
+  return MarketFactory.connect(marketAddress, wallet);
 }
 
 async function mint(
@@ -251,17 +258,6 @@ describe('ReserveAuctionV2', () => {
   });
 
   describe('#constructor', () => {
-    describe('when the passed in address does not meet the NFT standard', () => {
-      it.skip('should revert', async () => {
-        await expect(
-          new ReserveAuctionV2Factory(deployerWallet).deploy(
-            marketAddress,
-            wethAddress
-          )
-        ).rejectedWith(ERROR_MESSAGES.NOT_NFT);
-      });
-    });
-
     describe('happy path', () => {
       describe('when the passed in address does meet the NFT standard', () => {
         it('should set the variables correctly', async () => {
@@ -750,6 +746,193 @@ describe('ReserveAuctionV2', () => {
         expect(auctionCanceledEvent.args.tokenId.toNumber()).eq(tokenId);
         expect(auctionCanceledEvent.args.nftContractAddress).eq(mediaAddress);
         expect(auctionCanceledEvent.args.creator).eq(creatorWallet.address);
+      });
+    });
+  });
+
+  describe('#endAuction', () => {
+    beforeEach(async () => {
+      await resetBlockchain();
+      await deploy();
+    });
+
+    describe('sad path', () => {
+      describe("when ending an auction that doesn't exist", () => {
+        it('should revert', async () => {
+          const auctionAsCreator = await auctionAs(creatorWallet);
+          await expect(auctionAsCreator.endAuction(100)).rejectedWith(
+            ERROR_MESSAGES.AUCTION_DOESNT_EXIST
+          );
+        });
+      });
+
+      describe("when ending an auction that hasn't begun", () => {
+        it('should revert', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsCreator = await auctionAs(creatorWallet);
+
+          await expect(auctionAsCreator.endAuction(tokenId)).rejectedWith(
+            ERROR_MESSAGES.AUCTION_HASNT_BEGUN
+          );
+        });
+      });
+
+      describe("when ending an auction that hasn't completed", () => {
+        it('should revert', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+          const tx = await auctionAsBidder.createBid(tokenId, twoETH(), {
+            value: twoETH(),
+          });
+
+          await tx.wait();
+
+          await expect(auctionAsBidder.endAuction(tokenId)).rejectedWith(
+            ERROR_MESSAGES.AUCTION_HASNT_COMPLETED
+          );
+        });
+      });
+    });
+
+    describe('happy path', () => {
+      describe('when there is one bidder', () => {
+        let nftOwnerBeforeEndAuction,
+          nftOwnerAfterEndAuction,
+          auctionBeforeEndAuction,
+          auctionAfterEndAuction,
+          beforeCreatorBalance,
+          afterCreatorBalance,
+          beforeFundsRecipientBalance,
+          afterFundsRecipientBalance,
+          creatorAmount;
+
+        beforeEach(async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+          });
+
+          const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+          let tx = await auctionAsBidder.createBid(tokenId, twoETH(), {
+            value: twoETH(),
+          });
+
+          await tx.wait();
+          await blockchain.increaseTimeAsync(duration);
+
+          const nftContractAsCreator = await mediaAs(creatorWallet);
+
+          nftOwnerBeforeEndAuction = await nftContractAsCreator.ownerOf(
+            tokenId
+          );
+
+          auctionBeforeEndAuction = await auctionAsBidder.auctions(tokenId);
+          beforeCreatorBalance = await creatorWallet.getBalance();
+          beforeFundsRecipientBalance = await fundsRecipientWallet.getBalance();
+
+          const market = await marketAs(creatorWallet);
+          const creatorShare = await market.bidSharesForToken(tokenId);
+
+          creatorAmount = await market.splitShare(
+            creatorShare.creator,
+            twoETH()
+          );
+
+          tx = await auctionAsBidder.endAuction(tokenId);
+          tx.wait();
+
+          nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(tokenId);
+          auctionAfterEndAuction = await auctionAsBidder.auctions(tokenId);
+          afterCreatorBalance = await creatorWallet.getBalance();
+          afterFundsRecipientBalance = await fundsRecipientWallet.getBalance();
+        });
+
+        it('should delete the auction', () => {
+          expect(auctionBeforeEndAuction.exists).eq(true);
+          expect(auctionAfterEndAuction.exists).eq(false);
+        });
+
+        it('should transfer the NFT from the auction to the winning bidder', () => {
+          expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
+          expect(nftOwnerAfterEndAuction).eq(firstBidderWallet.address);
+        });
+
+        it('should send the creator share to the original creator', () => {
+          expect(afterCreatorBalance.toString()).eq(
+            beforeCreatorBalance.add(creatorAmount).toString()
+          );
+        });
+
+        it('should send the rest of the bid amount to the funds recipient', () => {
+          expect(afterFundsRecipientBalance.toString()).eq(
+            beforeFundsRecipientBalance
+              .add(twoETH())
+              .sub(creatorAmount)
+              .toString()
+          );
+        });
+      });
+    });
+
+    describe('when there are two bidders', () => {
+      let nftOwnerBeforeEndAuction, nftOwnerAfterEndAuction;
+
+      beforeEach(async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
+        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+        let tx = await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
+          value: oneETH(),
+        });
+        await tx.wait();
+
+        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+          value: twoETH(),
+        });
+        await tx.wait();
+
+        await blockchain.increaseTimeAsync(duration);
+
+        const nftContractAsCreator = await mediaAs(creatorWallet);
+
+        nftOwnerBeforeEndAuction = await nftContractAsCreator.ownerOf(tokenId);
+
+        tx = await auctionAsSecondBidder.endAuction(tokenId);
+        tx.wait();
+
+        nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(tokenId);
+      });
+
+      it('should send the NFT to the second bidder', () => {
+        expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
+        expect(nftOwnerAfterEndAuction).eq(secondBidderWallet.address);
       });
     });
   });

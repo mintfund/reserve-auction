@@ -388,7 +388,7 @@ describe('ReserveAuctionV2', () => {
       await deploy();
     });
 
-    describe('sad path', () => {
+    describe('errors', () => {
       describe("when the auction doesn't exist", () => {
         it('should revert', async () => {
           const auctionAsCreator = await auctionAs(creatorWallet);
@@ -522,7 +522,7 @@ describe('ReserveAuctionV2', () => {
       });
     });
 
-    describe('happy path', () => {
+    describe('successful cases', () => {
       describe('when there is an existing bid', () => {
         it('should refund the previous bidder', async () => {
           const { tokenId, reservePrice, duration } = await setupAuctionData();
@@ -565,6 +565,8 @@ describe('ReserveAuctionV2', () => {
     });
 
     describe('when the transaction succeeds', () => {
+      let tx;
+
       it('should set the amount to the last bid', async () => {
         const { tokenId, reservePrice, duration } = await setupAuctionData();
 
@@ -576,7 +578,7 @@ describe('ReserveAuctionV2', () => {
 
         const auctionAsBidder = await auctionAs(firstBidderWallet);
 
-        await auctionAsBidder.createBid(tokenId, twoETH(), {
+        tx = await auctionAsBidder.createBid(tokenId, twoETH(), {
           value: twoETH(),
         });
 
@@ -584,6 +586,12 @@ describe('ReserveAuctionV2', () => {
 
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
+
+      it("should cost 106293 gas", async () => {
+        const receipt = await tx.wait();
+        const {gasUsed} = receipt;
+        expect(gasUsed.toString()).to.eq("106293");
+      })
 
       it('should emit an AuctionBid event', async () => {
         const { tokenId, reservePrice, duration } = await setupAuctionData();

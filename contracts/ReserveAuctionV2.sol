@@ -90,15 +90,15 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     // Reverts if the auction does not exist.
     modifier auctionExists(uint256 tokenId) {
-        // The auction should not be null.
-        require(!_auctionIsNull(tokenId), "Auction doesn't exist");
+        // The auction exists if the creator is not null.
+        require(!auctionCreatorIsNull(tokenId), "Auction doesn't exist");
         _;
     }
 
     // Reverts if the auction exists.
     modifier auctionNonExistant(uint256 tokenId) {
-        // The auction should be null.
-        require(_auctionIsNull(tokenId), "Auction already exists");
+        // The auction does not exist if the creator is null.
+        require(auctionCreatorIsNull(tokenId), "Auction already exists");
         _;
     }
 
@@ -109,6 +109,15 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
                 block.timestamp <
                 auctions[tokenId].firstBidTime + auctions[tokenId].duration,
             "Auction expired"
+        );
+        _;
+    }
+
+    // Reverts if the sender is not the auction's creator.
+    modifier onlyCreator(uint256 tokenId) {
+        require(
+            auctions[tokenId].creator == msg.sender,
+            "Can only be called by auction creator"
         );
         _;
     }
@@ -272,11 +281,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         external
         nonReentrant
         auctionExists(tokenId)
+        onlyCreator(tokenId)
     {
-        require(
-            auctions[tokenId].creator == msg.sender,
-            "Can only be called by auction creator"
-        );
         require(
             uint256(auctions[tokenId].firstBidTime) == 0,
             "Auction already started"
@@ -307,7 +313,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         return success;
     }
 
-    function _auctionIsNull(uint256 tokenId) internal view returns (bool) {
+    function auctionCreatorIsNull(uint256 tokenId)
+        internal
+        view
+        returns (bool)
+    {
         // The auction does not exist if the creator is the null address,
         // since the NFT would not have been transferred.
         return auctions[tokenId].creator == address(0);

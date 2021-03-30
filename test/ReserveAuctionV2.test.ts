@@ -647,8 +647,8 @@ describe('ReserveAuctionV2', () => {
     describe('sad path', () => {
       describe("when the auction doesn't exist", () => {
         it('should revert', async () => {
-          const auctionAsBidder = await auctionAs(firstBidderWallet);
-          await expect(auctionAsBidder.cancelAuction(0)).rejectedWith(
+          const auctionAsCreator = await auctionAs(creatorWallet);
+          await expect(auctionAsCreator.cancelAuction(0)).rejectedWith(
             ERROR_MESSAGES.AUCTION_DOESNT_EXIST
           );
         });

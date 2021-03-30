@@ -349,34 +349,37 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     // Allows the admin to transfer any ETH from this contract
     // to the recovery address.
     function recoverETH(uint256 amount) external onlyAdminRecovery {
-        safeTransferETH(adminRecoveryAddress, amount);
+        maybeTransferETH(adminRecoveryAddress, amount);
     }
 
-    //======= Internal Functions =======
+    //======= Private Functions =======
 
-    function transferETHOrWETH(address to, uint256 value) internal {
+    // Will attent to transfer ETH, and will transfer WETH instead if it fails.
+    function transferETHOrWETH(address to, uint256 value) private {
         // Try to transfer ETH to the given recipient.
-        if (!safeTransferETH(to, value)) {
+        if (!maybeTransferETH(to, value)) {
             // If the transfer fails, wrap and send as WETH, so that
-            // the auction is not impeded.
+            // the auction is not impeded and the recipient still
+            // can claim ETH via WETH.
             IWETH(wethAddress).deposit{value: value}();
             IWETH(wethAddress).transfer(to, value);
         }
     }
 
-    function safeTransferETH(address to, uint256 value)
-        internal
+    // Send is not guaranteed to transfer ETH, and will return false if
+    // it fails. Therefore, we must handle failure cases manually from
+    // this function.
+    function maybeTransferETH(address to, uint256 value)
+        private
         returns (bool)
     {
-        (bool success, ) = to.call{value: value}(new bytes(0));
+        // Increase gas limit a reasonable amount, and try to send ETH to recipient
+        // NOTE: Must handle reentrancy vulnerability from this.
+        (bool success, ) = to.call{value: value, gas: 35000}("");
         return success;
     }
 
-    function auctionCreatorIsNull(uint256 tokenId)
-        internal
-        view
-        returns (bool)
-    {
+    function auctionCreatorIsNull(uint256 tokenId) private view returns (bool) {
         // The auction does not exist if the creator is the null address,
         // since the NFT would not have been transferred.
         return auctions[tokenId].creator == address(0);

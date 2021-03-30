@@ -10,6 +10,10 @@ import {
   Media,
   WethFactory,
   CrowdfundV2Factory,
+  EthRejecterFactory,
+  EthRejecter,
+  EthReceiverFactory,
+  EthReceiver
 } from '../typechain';
 import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
@@ -54,6 +58,8 @@ let marketAddress: string;
 let mediaAddress: string;
 let auctionAddress: string;
 let wethAddress: string;
+let ethRejecterAddress: string;
+let ethReceiverAddress: string;
 
 let tokenURI = 'www.example.com';
 let metadataURI = 'www.example2.com';
@@ -122,6 +128,18 @@ async function deploy() {
 
   wethAddress = weth.address;
 
+  const ethRejecter = await (
+    await new EthRejecterFactory(deployerWallet).deploy()
+  ).deployed();
+
+  ethRejecterAddress = ethRejecter.address;
+
+  const ethReceiver = await (
+    await new EthReceiverFactory(deployerWallet).deploy()
+  ).deployed();
+
+  ethReceiverAddress = ethReceiver.address;
+
   const auction = await (
     await new ReserveAuctionV2Factory(deployerWallet).deploy(
       mediaAddress,
@@ -139,6 +157,10 @@ async function mediaAs(wallet: Wallet) {
 
 async function marketAs(wallet: Wallet) {
   return MarketFactory.connect(marketAddress, wallet);
+}
+
+async function wethAs(wallet: Wallet) {
+  return WethFactory.connect(wethAddress, wallet);
 }
 
 async function mint(
@@ -183,6 +205,14 @@ async function mintTokenAs(wallet: Wallet) {
 
 async function auctionAs(wallet: Wallet): Promise<ReserveAuctionV2> {
   return ReserveAuctionV2Factory.connect(auctionAddress, wallet);
+}
+
+async function ethRejecterAs(wallet: Wallet): Promise<EthRejecter> {
+  return EthRejecterFactory.connect(ethRejecterAddress, wallet);
+}
+
+async function ethReceiverAs(wallet: Wallet): Promise<EthReceiver> {
+  return EthReceiverFactory.connect(ethReceiverAddress, wallet);
 }
 
 interface IAuctionData {
@@ -576,10 +606,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should use 66807 gas', async () => {
+        it('should use 66637 gas', async () => {
           const receipt = await tx.wait();
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('66807');
+          expect(gasUsed.toString()).to.eq('66637');
         });
       });
     });
@@ -879,25 +909,21 @@ describe('ReserveAuctionV2', () => {
         describe('when called by admin', () => {
           it('sets adminRecovery to false', async () => {
             const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
-            await (
-              await auctionAsAdmin.turnOffAdminRecovery()
-            );
+            await await auctionAsAdmin.turnOffAdminRecovery();
 
             const adminRecovery = await auctionAsAdmin.adminRecovery();
             expect(adminRecovery).to.eq(false);
           });
 
-          it("prevents all admin actions being called", async () => {
+          it('prevents all admin actions being called', async () => {
             const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
-            await (
-              await auctionAsAdmin.turnOffAdminRecovery()
-            );
+            await await auctionAsAdmin.turnOffAdminRecovery();
 
             const tx = auctionAsAdmin.recoverETH(twoETH());
             // Transaction should revert even when called by admin,
             // because admin is turned off.
             await expect(tx).rejectedWith(ERROR_MESSAGES.CALLER_NOT_ADMIN);
-          })
+          });
         });
       });
     });
@@ -1082,9 +1108,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should cost 102591 gas', () => {
+        it('should cost 102420 gas', () => {
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('102591');
+          expect(gasUsed.toString()).to.eq('102420');
         });
       });
     });
@@ -1129,6 +1155,98 @@ describe('ReserveAuctionV2', () => {
       it('should send the NFT to the second bidder', () => {
         expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
         expect(nftOwnerAfterEndAuction).eq(secondBidderWallet.address);
+      });
+    });
+
+    describe('when the first bidder is a contract that rejects ETH and is outbid', () => {
+      let receipt;
+
+      beforeEach(async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const rejecter = await ethRejecterAs(firstBidderWallet);
+        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+          
+        let tx = await rejecter.relayBid(auctionAddress, tokenId, oneETH(), {
+          value: oneETH(),
+        });
+
+        await tx.wait();
+
+        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+          value: twoETH(),
+          gasLimit: 3000000
+        });
+        receipt = await tx.wait();
+      });
+
+      it('returns the contract\'s ETH back in WETH', async () => {
+        const balance = await provider.getBalance(ethRejecterAddress);
+        expect(balance.toString()).to.eq("0");
+        
+        const wethAsBidder = wethAs(firstBidderWallet);
+        const contractWethBalance = (await wethAsBidder).balanceOf(
+          ethRejecterAddress
+        );
+
+        expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
+      });
+
+      it('should cost 143310 gas', () => {
+        const { gasUsed } = receipt;
+        expect(gasUsed.toString()).to.eq('143310');
+      });
+    });
+
+    describe('when the first bidder is a contract that accepts ETH but uses more gas', () => {
+      let receipt;
+
+      beforeEach(async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const receiver = await ethReceiverAs(firstBidderWallet);
+        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+          
+        let tx = await receiver.relayBid(auctionAddress, tokenId, oneETH(), {
+          value: oneETH(),
+        });
+
+        await tx.wait();
+
+        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+          value: twoETH(),
+          gasLimit: 3000000
+        });
+        receipt = await tx.wait();
+      });
+
+      it('returns the contract\'s ETH back in ETH', async () => {
+        const balance = await provider.getBalance(ethReceiverAddress);
+        expect(balance.toString()).to.eq(oneETH().toString());
+        
+        const wethAsBidder = wethAs(firstBidderWallet);
+        const contractWethBalance = (await wethAsBidder).balanceOf(
+          ethReceiverAddress
+        );
+
+        expect((await contractWethBalance).toString()).to.eq("0");
+      });
+
+      it('should cost 90898 gas', () => {
+        const { gasUsed } = receipt;
+        expect(gasUsed.toString()).to.eq('90898');
       });
     });
   });

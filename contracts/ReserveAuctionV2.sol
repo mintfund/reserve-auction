@@ -105,6 +105,17 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         _;
     }
 
+    // Reverts if the auction is expired.
+    modifier auctionNotExpired(uint256 tokenId) {
+        require(
+            auctions[tokenId].firstBidTime == 0 ||
+                block.timestamp <
+                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
+            "Auction expired"
+        );
+        _;
+    }
+
     //======= Constructor =======
 
     constructor(address nftContract_, address wethAddress_) public {
@@ -152,21 +163,15 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         payable
         nonReentrant
         auctionExists(tokenId)
+        auctionNotExpired(tokenId)
     {
         require(amount == msg.value, "Amount doesn't equal msg.value");
         require(
             amount >= auctions[tokenId].reservePrice,
             "Must bid reservePrice or more"
         );
-        require(
-            auctions[tokenId].firstBidTime == 0 ||
-                block.timestamp <
-                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
-            "Auction expired"
-        );
 
         uint256 lastValue = auctions[tokenId].amount;
-
         bool firstBid = false;
         address payable lastBidder = address(0);
 

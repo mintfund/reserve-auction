@@ -596,10 +596,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it("should cost 106334 gas", async () => {
+      it("should cost 106342 gas", async () => {
         const receipt = await tx.wait();
         const {gasUsed} = receipt;
-        expect(gasUsed.toString()).to.eq("106334");
+        expect(gasUsed.toString()).to.eq("106342");
       });
 
       it('should emit an AuctionBid event', async () => {

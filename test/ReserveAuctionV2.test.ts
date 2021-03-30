@@ -573,10 +573,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it("should use 66761 gas", async () => {
+        it("should use 66784 gas", async () => {
           const receipt = await tx.wait();
           const {gasUsed} = receipt;
-          expect(gasUsed.toString()).to.eq("66761");
+          expect(gasUsed.toString()).to.eq("66784");
         });
       });
     });
@@ -604,10 +604,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it("should cost 105390 gas", async () => {
+      it("should cost 105413 gas", async () => {
         const receipt = await tx.wait();
         const {gasUsed} = receipt;
-        expect(gasUsed.toString()).to.eq("105390");
+        expect(gasUsed.toString()).to.eq("105413");
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -783,7 +783,7 @@ describe('ReserveAuctionV2', () => {
         it('should revert', async () => {
           const auctionAsCreator = await auctionAs(creatorWallet);
           await expect(auctionAsCreator.endAuction(100)).rejectedWith(
-            ERROR_MESSAGES.AUCTION_DOESNT_EXIST
+            ERROR_MESSAGES.AUCTION_HASNT_COMPLETED
           );
         });
       });
@@ -801,7 +801,7 @@ describe('ReserveAuctionV2', () => {
           const auctionAsCreator = await auctionAs(creatorWallet);
 
           await expect(auctionAsCreator.endAuction(tokenId)).rejectedWith(
-            ERROR_MESSAGES.AUCTION_HASNT_BEGUN
+            ERROR_MESSAGES.AUCTION_HASNT_COMPLETED
           );
         });
       });
@@ -914,9 +914,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it("should cost 103041 gas", () => {
+        it("should cost 102579 gas", () => {
             const {gasUsed} = receipt;
-            expect(gasUsed.toString()).to.eq("103041");
+            expect(gasUsed.toString()).to.eq("102579");
         });
       });
     });

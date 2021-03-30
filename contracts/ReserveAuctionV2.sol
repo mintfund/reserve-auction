@@ -122,6 +122,18 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         _;
     }
 
+    // Reverts if the auction is not complete.
+    // Auction is complete if there was a bid, and the time has run out.
+    modifier auctionComplete(uint256 tokenId) {
+        require(
+            auctions[tokenId].firstBidTime > 0 &&
+                block.timestamp >=
+                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
+            "Auction hasn't completed"
+        );
+        _;
+    }
+
     //======= Constructor =======
 
     constructor(address nftContract_, address wethAddress_) public {
@@ -175,6 +187,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         auctionNotExpired(tokenId)
     {
         require(amount == msg.value, "Amount doesn't equal msg.value");
+        require(amount > 0, "Amount must be greater than nothing");
 
         // Check if the current bid amount is 0.
         if (auctions[tokenId].amount == 0) {
@@ -227,18 +240,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     function endAuction(uint256 tokenId)
         external
         nonReentrant
-        auctionExists(tokenId)
+        auctionComplete(tokenId)
     {
-        require(
-            uint256(auctions[tokenId].firstBidTime) != 0,
-            "Auction hasn't begun"
-        );
-        require(
-            block.timestamp >=
-                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
-            "Auction hasn't completed"
-        );
-
         address winner = auctions[tokenId].bidder;
         uint256 amount = auctions[tokenId].amount;
         address creator = auctions[tokenId].creator;

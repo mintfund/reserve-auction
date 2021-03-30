@@ -37,8 +37,18 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     address public nftContract;
     address public immutable wethAddress;
+    // The address that initially is able to recover assets.
+    address public immutable adminRecoveryAddress;
 
     //======= Mutable Storage =======
+
+    /**
+     * To start, there will be and admin account that can
+     * recover funds if anything goes wrong. Later,
+     * this public flag will be irrevocably set to false, removing any
+     * admin privileges forever.
+     */
+    bool public adminRecovery = true;
 
     mapping(uint256 => Auction) public auctions;
 
@@ -88,6 +98,18 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     //======= Modifiers =======
 
+    // Reverts if the sender is not admin, or admin
+    // functionality has been turned off.
+    modifier onlyAdminRecovery() {
+        require(
+            // The sender must be the admin address, and
+            // adminRecovery must be set to true.
+            adminRecoveryAddress == msg.sender && adminRecovery,
+            "Caller does not have admin privileges"
+        );
+        _;
+    }
+
     // Reverts if the auction does not exist.
     modifier auctionExists(uint256 tokenId) {
         // The auction exists if the creator is not null.
@@ -136,16 +158,21 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     //======= Constructor =======
 
-    constructor(address nftContract_, address wethAddress_) public {
+    constructor(
+        address nftContract_,
+        address wethAddress_,
+        address adminRecoveryAddress_
+    ) public {
         require(
             IERC165(nftContract_).supportsInterface(ERC721_INTERFACE_ID),
             "Doesn't support NFT interface"
         );
         nftContract = nftContract_;
         wethAddress = wethAddress_;
+        adminRecoveryAddress = adminRecoveryAddress_;
     }
 
-    //======= External Functions =======
+    //======= Create Auction =======
 
     function createAuction(
         uint256 tokenId,
@@ -178,6 +205,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             fundsRecipient
         );
     }
+
+    //======= Create Bid =======
 
     function createBid(uint256 tokenId, uint256 amount)
         external
@@ -237,6 +266,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         emit AuctionBid(tokenId, nftContract, msg.sender, amount);
     }
 
+    //======= End Auction =======
+
     function endAuction(uint256 tokenId)
         external
         nonReentrant
@@ -280,6 +311,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
     }
 
+    //======= Cancel Auction =======
+
     function cancelAuction(uint256 tokenId)
         external
         nonReentrant
@@ -294,6 +327,29 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         delete auctions[tokenId];
         IERC721(nftContract).transferFrom(address(this), creator, tokenId);
         emit AuctionCanceled(tokenId, nftContract, creator);
+    }
+
+    //======= Admin Functions =======
+
+    // Irrevocably turns off admin recovery.
+    function turnOffAdminRecovery() external onlyAdminRecovery {
+        adminRecovery = false;
+    }
+
+    // Allows the admin to transfer any NFT from this contract
+    // to the recovery address.
+    function recoverNFT(uint256 tokenId) external onlyAdminRecovery {
+        IERC721(nftContract).transferFrom(
+            address(this),
+            adminRecoveryAddress,
+            tokenId
+        );
+    }
+
+    // Allows the admin to transfer any ETH from this contract
+    // to the recovery address.
+    function recoverETH(uint256 amount) external onlyAdminRecovery {
+        safeTransferETH(adminRecoveryAddress, amount);
     }
 
     //======= Internal Functions =======

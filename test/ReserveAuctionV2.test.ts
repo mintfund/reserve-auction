@@ -15,7 +15,7 @@ import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
 import { Wallet } from '@ethersproject/wallet';
 import { BigNumber, Bytes, ContractTransaction, ethers } from 'ethers';
-import { sha256 } from 'ethers/lib/utils';
+import { recoverAddress, sha256 } from 'ethers/lib/utils';
 import { signPermit } from './utils';
 
 chai.use(asPromised);
@@ -23,7 +23,7 @@ chai.use(asPromised);
 const provider = new JsonRpcProvider();
 const blockchain = new Blockchain(provider);
 
-const NULL_ADDRESS = "0x0000000000000000000000000000000000000000";
+const NULL_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 const ERROR_MESSAGES = {
   NOT_NFT: "Doesn't support NFT interface",
@@ -38,6 +38,7 @@ const ERROR_MESSAGES = {
   AUCTION_ALREADY_STARTED: 'Auction already started',
   AUCTION_HASNT_BEGUN: "Auction hasn't begun",
   AUCTION_HASNT_COMPLETED: "Auction hasn't completed",
+  CALLER_NOT_ADMIN: 'Caller does not have admin privileges',
 };
 
 let contentHex: string;
@@ -85,6 +86,7 @@ const [
   firstBidderWallet,
   secondBidderWallet,
   otherWallet,
+  adminRecoveryAddress,
 ] = generatedWallets(provider);
 
 function twoETH(): BigNumber {
@@ -123,7 +125,8 @@ async function deploy() {
   const auction = await (
     await new ReserveAuctionV2Factory(deployerWallet).deploy(
       mediaAddress,
-      wethAddress
+      wethAddress,
+      adminRecoveryAddress.address
     )
   ).deployed();
 
@@ -271,7 +274,7 @@ describe('ReserveAuctionV2', () => {
     });
   });
 
-  describe('#createAuction', () => {  
+  describe('#createAuction', () => {
     beforeEach(async () => {
       await resetBlockchain();
       await deploy();
@@ -327,10 +330,10 @@ describe('ReserveAuctionV2', () => {
           expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
         });
 
-        it("should use 172269 gas", async () => {
+        it('should use 172292 gas', async () => {
           const receipt = await tx.wait();
-          const {gasUsed} = receipt;
-          expect(gasUsed.toString()).to.eq("172269");
+          const { gasUsed } = receipt;
+          expect(gasUsed.toString()).to.eq('172292');
         });
 
         it('should transfer the NFT to the auction', async () => {
@@ -573,10 +576,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it("should use 66784 gas", async () => {
+        it('should use 66807 gas', async () => {
           const receipt = await tx.wait();
-          const {gasUsed} = receipt;
-          expect(gasUsed.toString()).to.eq("66784");
+          const { gasUsed } = receipt;
+          expect(gasUsed.toString()).to.eq('66807');
         });
       });
     });
@@ -604,10 +607,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it("should cost 105413 gas", async () => {
+      it('should cost 105436 gas', async () => {
         const receipt = await tx.wait();
-        const {gasUsed} = receipt;
-        expect(gasUsed.toString()).to.eq("105413");
+        const { gasUsed } = receipt;
+        expect(gasUsed.toString()).to.eq('105436');
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -710,7 +713,7 @@ describe('ReserveAuctionV2', () => {
         const auctionAsCreator = await auctionAs(creatorWallet);
         await auctionAsCreator.cancelAuction(tokenId);
         const auction = await auctionAsCreator.auctions(tokenId);
-        expect(auction.creator).eq(NULL_ADDRESS)
+        expect(auction.creator).eq(NULL_ADDRESS);
       });
 
       it('should transfer the NFT back to the creator', async () => {
@@ -768,6 +771,171 @@ describe('ReserveAuctionV2', () => {
         expect(auctionCanceledEvent.args.tokenId.toNumber()).eq(tokenId);
         expect(auctionCanceledEvent.args.nftContractAddress).eq(mediaAddress);
         expect(auctionCanceledEvent.args.creator).eq(creatorWallet.address);
+      });
+    });
+  });
+
+  /*
+    Admin Functions
+  */
+
+  describe('admin function', () => {
+    let balanceBefore;
+    let auctionAsCreator;
+    let nftId;
+
+    beforeEach(async () => {
+      const { tokenId, reservePrice, duration } = await setupAuctionData();
+      nftId = tokenId;
+
+      await setupAuction({
+        tokenId,
+        reservePrice,
+        duration,
+      });
+
+      auctionAsCreator = await auctionAs(creatorWallet);
+
+      const tx = await auctionAsCreator.createBid(tokenId, twoETH(), {
+        value: twoETH(),
+      });
+
+      await tx.wait();
+
+      balanceBefore = await provider.getBalance(auctionAsCreator.address);
+    });
+
+    describe('#transferETH', () => {
+      describe('when called by a random address', () => {
+        it('reverts', async () => {
+          // Sanity check that balance before is 2 ETH.
+          expect(balanceBefore.toString()).to.eq(twoETH().toString());
+
+          const tx = auctionAsCreator.recoverETH(twoETH());
+          // Transaction should revert.
+          await expect(tx).rejectedWith(ERROR_MESSAGES.CALLER_NOT_ADMIN);
+
+          // Balance should be unchanged.
+          const balanceAfter = await provider.getBalance(
+            auctionAsCreator.address
+          );
+          expect(balanceAfter.toString()).to.eq(balanceBefore.toString());
+        });
+      });
+
+      describe('when called by the admin recovery address', () => {
+        let gasAmount;
+        let adminBalanceBefore;
+
+        beforeEach(async () => {
+          adminBalanceBefore = await provider.getBalance(
+            adminRecoveryAddress.address
+          );
+
+          const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
+          const tx = await auctionAsAdmin.recoverETH(twoETH());
+          // Transaction should complete.
+          await tx.wait();
+
+          gasAmount = await getGasAmountFromTx(tx);
+        });
+
+        it('decreases ETH in the auction contract to 0', async () => {
+          // Sanity check that balance before is 2 ETH.
+          expect(balanceBefore.toString()).to.eq(twoETH().toString());
+          // Balance afterwards should be zero.
+          const balanceAfter = await provider.getBalance(
+            auctionAsCreator.address
+          );
+          expect(balanceAfter.toString()).to.eq('0');
+        });
+
+        it('increases the ETH balance in the recovery address', async () => {
+          // Balance should be transferred to the admin.
+          const adminBalance = await provider.getBalance(
+            adminRecoveryAddress.address
+          );
+          expect(
+            // The amount that got added is equal to the current balance, minus
+            // the original balance, plus thas gas used.
+            adminBalance.sub(adminBalanceBefore).add(gasAmount).toString()
+          ).to.eq(balanceBefore.toString());
+        });
+      });
+
+      describe('turnOffAdminRecovery', () => {
+        describe('when called by a random address', () => {
+          it('reverts', async () => {
+            const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
+            const adminRecovery = await auctionAsAdmin.adminRecovery();
+            expect(adminRecovery).to.eq(true);
+
+            const badTx = auctionAsCreator.turnOffAdminRecovery();
+            // Transaction should revert.
+            await expect(badTx).rejectedWith(ERROR_MESSAGES.CALLER_NOT_ADMIN);
+          });
+        });
+
+        describe('when called by admin', () => {
+          it('sets adminRecovery to false', async () => {
+            const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
+            await (
+              await auctionAsAdmin.turnOffAdminRecovery()
+            );
+
+            const adminRecovery = await auctionAsAdmin.adminRecovery();
+            expect(adminRecovery).to.eq(false);
+          });
+
+          it("prevents all admin actions being called", async () => {
+            const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
+            await (
+              await auctionAsAdmin.turnOffAdminRecovery()
+            );
+
+            const tx = auctionAsAdmin.recoverETH(twoETH());
+            // Transaction should revert even when called by admin,
+            // because admin is turned off.
+            await expect(tx).rejectedWith(ERROR_MESSAGES.CALLER_NOT_ADMIN);
+          })
+        });
+      });
+    });
+
+    describe('#transferNFT', () => {
+      describe('when called by a random address', () => {
+        it('reverts', async () => {
+          // Sanity check ownership of NFT is the auction.
+          const zoraMediaAsCreator = await mediaAs(creatorWallet);
+          const ownerBefore = await zoraMediaAsCreator.ownerOf(nftId);
+          expect(ownerBefore).to.eq(auctionAsCreator.address);
+
+          const tx = auctionAsCreator.recoverNFT(nftId);
+          // Transaction should revert.
+          await expect(tx).rejectedWith(ERROR_MESSAGES.CALLER_NOT_ADMIN);
+
+          // Ownership should be unchanged.
+          const ownerAfter = await zoraMediaAsCreator.ownerOf(nftId);
+          expect(ownerAfter).to.eq(auctionAsCreator.address);
+        });
+      });
+
+      describe('when called by the admin recovery address', () => {
+        it('transfers the NFT', async () => {
+          // Sanity check ownership of NFT is the auction.
+          const zoraMediaAsCreator = await mediaAs(adminRecoveryAddress);
+          const ownerBefore = await zoraMediaAsCreator.ownerOf(nftId);
+          expect(ownerBefore).to.eq(auctionAsCreator.address);
+
+          const auctionAsAdmin = await auctionAs(adminRecoveryAddress);
+          const tx = await auctionAsAdmin.recoverNFT(nftId);
+          // Transaction should complete.
+          await tx.wait();
+
+          // Ownership should be updated to the admin recovery account.
+          const ownerAfter = await zoraMediaAsCreator.ownerOf(nftId);
+          expect(ownerAfter).to.eq(adminRecoveryAddress.address);
+        });
       });
     });
   });
@@ -842,7 +1010,7 @@ describe('ReserveAuctionV2', () => {
           beforeFundsRecipientBalance,
           afterFundsRecipientBalance,
           creatorAmount;
-          let receipt;
+        let receipt;
 
         beforeEach(async () => {
           const { tokenId, reservePrice, duration } = await setupAuctionData();
@@ -914,9 +1082,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it("should cost 102579 gas", () => {
-            const {gasUsed} = receipt;
-            expect(gasUsed.toString()).to.eq("102579");
+        it('should cost 102591 gas', () => {
+          const { gasUsed } = receipt;
+          expect(gasUsed.toString()).to.eq('102591');
         });
       });
     });

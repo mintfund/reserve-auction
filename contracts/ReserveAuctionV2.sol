@@ -136,14 +136,17 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address creator,
         address payable fundsRecipient
     ) external nonReentrant auctionNonExistant(tokenId) {
+        require(creator != address(0));
+        require(fundsRecipient != address(0));
+
         auctions[tokenId] = Auction({
-            amount: 0,
             duration: duration,
-            firstBidTime: 0,
             reservePrice: reservePrice,
             creator: creator,
-            bidder: address(0),
-            fundsRecipient: fundsRecipient
+            fundsRecipient: fundsRecipient,
+            amount: 0,
+            firstBidTime: 0,
+            bidder: address(0)
         });
 
         IERC721(nftContract).transferFrom(creator, address(this), tokenId);
@@ -166,25 +169,27 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         auctionNotExpired(tokenId)
     {
         require(amount == msg.value, "Amount doesn't equal msg.value");
-        require(
-            amount >= auctions[tokenId].reservePrice,
-            "Must bid reservePrice or more"
-        );
 
-        uint256 lastValue = auctions[tokenId].amount;
+        uint256 previousBidAmount = auctions[tokenId].amount;
         bool firstBid = false;
         address payable lastBidder = address(0);
 
-        if (lastValue != 0) {
-            require(amount > lastValue, "Must send more than last bid");
+        if (previousBidAmount == 0) {
+            firstBid = true;
+            auctions[tokenId].firstBidTime = block.timestamp;
+
+            // We only need to check if it matches reserve bid once,
+            // since future checks will need to be higher.
             require(
-                amount.sub(lastValue) > MIN_BID,
+                amount >= auctions[tokenId].reservePrice,
+                "Must bid reservePrice or more"
+            );
+        } else {
+            require(
+                amount.sub(previousBidAmount) > MIN_BID,
                 "Must send more than last bid by MIN_BID amount"
             );
             lastBidder = auctions[tokenId].bidder;
-        } else {
-            firstBid = true;
-            auctions[tokenId].firstBidTime = block.timestamp;
         }
 
         require(
@@ -222,7 +227,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
 
         if (!firstBid) {
-            transferETHOrWETH(lastBidder, lastValue);
+            transferETHOrWETH(lastBidder, previousBidAmount);
         }
     }
 

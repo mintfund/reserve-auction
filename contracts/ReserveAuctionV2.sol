@@ -67,10 +67,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         uint256 indexed tokenId,
         address nftContractAddress,
         address sender,
-        uint256 value,
-        uint256 timestamp,
-        bool firstBid,
-        bool extended
+        uint256 value
     );
 
     event AuctionCanceled(
@@ -170,25 +167,27 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     {
         require(amount == msg.value, "Amount doesn't equal msg.value");
 
-        uint256 previousBidAmount = auctions[tokenId].amount;
-
-        if (previousBidAmount == 0) {
+        // Check if the current bid amount is 0.
+        if (auctions[tokenId].amount == 0) {
+            // If so, it is the first bid.
             auctions[tokenId].firstBidTime = block.timestamp;
-
-            // We only need to check if it matches reserve bid once,
-            // since future checks will need to be higher.
+            // We only need to check if the bid matches reserve bid for the first bid,
+            // since future checks will need to be higher than any previous bid.
             require(
                 amount >= auctions[tokenId].reservePrice,
                 "Must bid reservePrice or more"
             );
         } else {
             require(
-                amount.sub(previousBidAmount) > MIN_BID,
+                amount.sub(auctions[tokenId].amount) > MIN_BID,
                 "Must send more than last bid by MIN_BID amount"
             );
 
             // Refund the previous bidder.
-            transferETHOrWETH(auctions[tokenId].bidder, previousBidAmount);
+            transferETHOrWETH(
+                auctions[tokenId].bidder,
+                auctions[tokenId].amount
+            );
         }
 
         require(
@@ -203,28 +202,15 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
 
-        bool extended = false;
-        // at this point we know that the timestamp is less than start + duration
-        // we want to know by how much the timestamp is less than start + duration
-        // if the difference is less than the TIME_BUFFER, increase the duration by the TIME_BUFFER
         if (
             auctions[tokenId].firstBidTime.add(auctions[tokenId].duration).sub(
                 block.timestamp
             ) < TIME_BUFFER
         ) {
             auctions[tokenId].duration += TIME_BUFFER;
-            extended = true;
         }
 
-        emit AuctionBid(
-            tokenId,
-            nftContract,
-            msg.sender,
-            amount,
-            block.timestamp,
-            previousBidAmount == 0,
-            extended
-        );
+        emit AuctionBid(tokenId, nftContract, msg.sender, amount);
     }
 
     function endAuction(uint256 tokenId)

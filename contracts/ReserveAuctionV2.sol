@@ -171,11 +171,9 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         require(amount == msg.value, "Amount doesn't equal msg.value");
 
         uint256 previousBidAmount = auctions[tokenId].amount;
-        bool firstBid = false;
         address payable lastBidder = address(0);
 
         if (previousBidAmount == 0) {
-            firstBid = true;
             auctions[tokenId].firstBidTime = block.timestamp;
 
             // We only need to check if it matches reserve bid once,
@@ -222,11 +220,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             msg.sender,
             amount,
             block.timestamp,
-            firstBid,
+            previousBidAmount == 0,
             extended
         );
 
-        if (!firstBid) {
+        if (previousBidAmount != 0) {
             transferETHOrWETH(lastBidder, previousBidAmount);
         }
     }

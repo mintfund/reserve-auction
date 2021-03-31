@@ -203,9 +203,10 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         address creator,
         address payable fundsRecipient
     ) external nonReentrant whenNotPaused auctionNonExistant(tokenId) {
+        // Check basic input requirements are reasonable.
         require(creator != address(0));
         require(fundsRecipient != address(0));
-
+        // Initialize the auction details, including null values.
         auctions[tokenId] = Auction({
             duration: duration,
             reservePrice: reservePrice,
@@ -215,9 +216,9 @@ contract ReserveAuctionV2 is ReentrancyGuard {
             firstBidTime: 0,
             bidder: address(0)
         });
-
+        // Transfer the NFT into this auction contract, from the creator.
         IERC721(nftContract).transferFrom(creator, address(this), tokenId);
-
+        // Emit an event describing the new auction.
         emit AuctionCreated(
             tokenId,
             nftContract,
@@ -238,9 +239,9 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         auctionExists(tokenId)
         auctionNotExpired(tokenId)
     {
+        // Check basic input requirements.
         require(amount == msg.value, "Amount doesn't equal msg.value");
         require(amount > 0, "Amount must be greater than nothing");
-
         // Check if the current bid amount is 0.
         if (auctions[tokenId].amount == 0) {
             // If so, it is the first bid.
@@ -263,7 +264,6 @@ contract ReserveAuctionV2 is ReentrancyGuard {
                 auctions[tokenId].amount
             );
         }
-
         // Confirm that this is a valid bid, according to Zora market.
         require(
             IMarket(IMediaModified(nftContract).marketContract()).isValidBid(
@@ -272,11 +272,10 @@ contract ReserveAuctionV2 is ReentrancyGuard {
             ),
             "Market: ask invalid for share splitting"
         );
-
         // Update the current auction.
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
-
+        // Check whether we should extend the auction running time.
         if (
             auctions[tokenId].firstBidTime.add(auctions[tokenId].duration).sub(
                 block.timestamp
@@ -284,7 +283,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         ) {
             auctions[tokenId].duration += TIME_BUFFER;
         }
-
+        // Emit the event that a bid has been made.
         emit AuctionBid(tokenId, nftContract, msg.sender, amount);
     }
 
@@ -296,30 +295,31 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         whenNotPaused
         auctionComplete(tokenId)
     {
+        // Record relevant data from the auction.
         address winner = auctions[tokenId].bidder;
         uint256 amount = auctions[tokenId].amount;
         address creator = auctions[tokenId].creator;
         address payable fundsRecipient = auctions[tokenId].fundsRecipient;
-
+        // Remove all auction data for this token.
         delete auctions[tokenId];
-
+        // We don't use safeTransferFrom, to prevent reverts at this point,
+        // which would break the auction.
         IERC721(nftContract).transferFrom(address(this), winner, tokenId);
-
-        IMarket.BidShares memory bidShares =
-            IMarket(IMediaModified(nftContract).marketContract())
-                .bidSharesForToken(tokenId);
-
+        // Get the address of the original creator, so that we can split shares
+        // if appropriate.
         address payable originalCreator =
             payable(
                 address(IMediaModified(nftContract).tokenCreators(tokenId))
             );
-
         // If the creator and the recipient of the funds are the same,
         // and this should be common, we just do one transaction.
         if (originalCreator == fundsRecipient) {
             transferETHOrWETH(originalCreator, amount);
         } else {
-            // Otherwise, we split the transaction into two.
+            // Collect share data from Zora.
+            IMarket.BidShares memory bidShares =
+                IMarket(IMediaModified(nftContract).marketContract())
+                    .bidSharesForToken(tokenId);
             uint256 creatorAmount =
                 IMarket(IMediaModified(nftContract).marketContract())
                     .splitShare(bidShares.creator, amount);
@@ -328,7 +328,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
             // Send the remainder of the amount to the funds recipient.
             transferETHOrWETH(fundsRecipient, amount.sub(creatorAmount));
         }
-
+        // Emit an event describing the end of the auction.
         emit AuctionEnded(
             tokenId,
             nftContract,
@@ -348,13 +348,18 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         auctionExists(tokenId)
         onlyCreator(tokenId)
     {
+        // Check that there hasn't already been a bid for this NFT.
         require(
             uint256(auctions[tokenId].firstBidTime) == 0,
             "Auction already started"
         );
+        // Pull the creator address before removing the auction.
         address creator = auctions[tokenId].creator;
+        // Remove all data about the auction.
         delete auctions[tokenId];
+        // Transfer the NFT back to the creator.
         IERC721(nftContract).transferFrom(address(this), creator, tokenId);
+        // Emit an event describing that the auction has been canceled.
         emit AuctionCanceled(tokenId, nftContract, creator);
     }
 

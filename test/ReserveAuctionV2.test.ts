@@ -619,10 +619,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should use 67551 gas', async () => {
+        it('should use 67544 gas', async () => {
           const receipt = await tx.wait();
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('67551');
+          expect(gasUsed.toString()).to.eq('67544');
         });
       });
     });
@@ -650,10 +650,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it('should cost 106350 gas', async () => {
+      it('should cost 106349 gas', async () => {
         const receipt = await tx.wait();
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('106350');
+        expect(gasUsed.toString()).to.eq('106349');
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -1121,9 +1121,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should cost 102897 gas', () => {
+        it('should cost 102895 gas', () => {
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('102897');
+          expect(gasUsed.toString()).to.eq('102895');
         });
       });
     });
@@ -1210,9 +1210,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
       });
 
-      it('should cost 144225 gas', () => {
+      it('should cost 144218 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('144225');
+        expect(gasUsed.toString()).to.eq('144218');
       });
     });
 
@@ -1255,9 +1255,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq("0");
       });
 
-      it('should cost 91812 gas', () => {
+      it('should cost 91805 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('91812');
+        expect(gasUsed.toString()).to.eq('91805');
       });
     });
 
@@ -1300,9 +1300,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
       });
 
-      it('should cost 116661 gas', () => {
+      it('should cost 116632 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('116661');
+        expect(gasUsed.toString()).to.eq('116632');
       });
     });
   });

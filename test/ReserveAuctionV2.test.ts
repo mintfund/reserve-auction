@@ -13,7 +13,9 @@ import {
   EthRejecterFactory,
   EthRejecter,
   EthReceiverFactory,
-  EthReceiver
+  EthReceiver,
+  ReentrancyAttackerFactory,
+  ReentrancyAttacker
 } from '../typechain';
 import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
@@ -60,6 +62,7 @@ let auctionAddress: string;
 let wethAddress: string;
 let ethRejecterAddress: string;
 let ethReceiverAddress: string;
+let reentrancyAttackerAddress: string;
 
 let tokenURI = 'www.example.com';
 let metadataURI = 'www.example2.com';
@@ -140,6 +143,12 @@ async function deploy() {
 
   ethReceiverAddress = ethReceiver.address;
 
+  const reentrancyAttacker = await (
+    await new ReentrancyAttackerFactory(deployerWallet).deploy()
+  ).deployed();
+
+  reentrancyAttackerAddress = reentrancyAttacker.address;
+
   const auction = await (
     await new ReserveAuctionV2Factory(deployerWallet).deploy(
       mediaAddress,
@@ -213,6 +222,10 @@ async function ethRejecterAs(wallet: Wallet): Promise<EthRejecter> {
 
 async function ethReceiverAs(wallet: Wallet): Promise<EthReceiver> {
   return EthReceiverFactory.connect(ethReceiverAddress, wallet);
+}
+
+async function reentrancyAttackerAs(wallet: Wallet): Promise<ReentrancyAttacker> {
+  return ReentrancyAttackerFactory.connect(reentrancyAttackerAddress, wallet);
 }
 
 interface IAuctionData {
@@ -1180,8 +1193,7 @@ describe('ReserveAuctionV2', () => {
         await tx.wait();
 
         tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
-          gasLimit: 3000000
+          value: twoETH()
         });
         receipt = await tx.wait();
       });
@@ -1226,8 +1238,7 @@ describe('ReserveAuctionV2', () => {
         await tx.wait();
 
         tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
-          gasLimit: 3000000
+          value: twoETH()
         });
         receipt = await tx.wait();
       });
@@ -1247,6 +1258,51 @@ describe('ReserveAuctionV2', () => {
       it('should cost 90898 gas', () => {
         const { gasUsed } = receipt;
         expect(gasUsed.toString()).to.eq('90898');
+      });
+    });
+
+    describe('when the first bidder is a contract that attempts reentrancy', () => {
+      let receipt;
+
+      beforeEach(async () => {
+        const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+        await setupAuction({
+          tokenId,
+          reservePrice,
+          duration,
+        });
+
+        const attacker = await reentrancyAttackerAs(firstBidderWallet);
+        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+          
+        let tx = await attacker.relayBid(auctionAddress, tokenId, oneETH(), {
+          value: oneETH(),
+        });
+
+        await tx.wait();
+
+        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+          value: twoETH()
+        });
+        receipt = await tx.wait();
+      });
+
+      it('returns the contract\'s ETH back in WETH', async () => {
+        const balance = await provider.getBalance(reentrancyAttackerAddress);
+        expect(balance.toString()).to.eq("0");
+        
+        const wethAsBidder = wethAs(firstBidderWallet);
+        const contractWethBalance = (await wethAsBidder).balanceOf(
+          reentrancyAttackerAddress
+        );
+
+        expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
+      });
+
+      it('should cost 115702 gas', () => {
+        const { gasUsed } = receipt;
+        expect(gasUsed.toString()).to.eq('115702');
       });
     });
   });

@@ -57,9 +57,11 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
      */
     bool public adminRecovery = true;
 
+    // A mapping of all of the auctions currently running.
     mapping(uint256 => Auction) public auctions;
 
     // ============ Structs ============
+
     struct Auction {
         uint256 amount;
         uint256 duration;
@@ -71,6 +73,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     }
 
     // ============ Events ============
+
     event AuctionCreated(
         uint256 indexed tokenId,
         address nftContractAddress,

@@ -1,7 +1,6 @@
 import fs from 'fs-extra';
 import { JsonRpcProvider } from '@ethersproject/providers';
 import { Wallet } from '@ethersproject/wallet';
-import { NftFactoryFactory } from '../typechain/NftFactoryFactory';
 import { ReserveAuctionV2Factory } from '../typechain/ReserveAuctionV2Factory';
 
 const CHAIN_ID = 4;

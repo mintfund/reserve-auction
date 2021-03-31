@@ -290,15 +290,21 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
             payable(
                 address(IMediaModified(nftContract).tokenCreators(tokenId))
             );
-        uint256 creatorAmount =
-            IMarket(IMediaModified(nftContract).marketContract()).splitShare(
-                bidShares.creator,
-                amount
-            );
 
-        transferETHOrWETH(originalCreator, creatorAmount);
-        // Send the remainder of the amount to the funds recipient.
-        transferETHOrWETH(fundsRecipient, amount.sub(creatorAmount));
+        // If the creator and the recipient of the funds are the same,
+        // and this should be common, we just do one transaction.
+        if (originalCreator == fundsRecipient) {
+            transferETHOrWETH(originalCreator, amount);
+        } else {
+            // Otherwise, we split the transaction into two.
+            uint256 creatorAmount =
+                IMarket(IMediaModified(nftContract).marketContract())
+                    .splitShare(bidShares.creator, amount);
+            // Send the creator's share to the creator.
+            transferETHOrWETH(originalCreator, creatorAmount);
+            // Send the remainder of the amount to the funds recipient.
+            transferETHOrWETH(fundsRecipient, amount.sub(creatorAmount));
+        }
 
         emit AuctionEnded(
             tokenId,

@@ -1121,9 +1121,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should cost 102420 gas', () => {
+        it('should cost 102441 gas', () => {
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('102420');
+          expect(gasUsed.toString()).to.eq('102441');
         });
       });
     });

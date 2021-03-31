@@ -3,7 +3,6 @@ pragma solidity 0.6.8;
 pragma experimental ABIEncoderV2;
 
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {IMarket} from "./interfaces/IMarket.sol";
 import {IERC165} from "@openzeppelin/contracts/introspection/IERC165.sol";
 import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
@@ -22,7 +21,7 @@ interface IWETH {
     function transfer(address to, uint256 value) external returns (bool);
 }
 
-contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
+contract ReserveAuctionV2 is ReentrancyGuard {
     using SafeMath for uint256;
 
     // ============ Constants ============
@@ -255,10 +254,9 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         } else {
             // Check that the new bid is sufficiently higher than the previous bid.
             require(
-                amount.sub(auctions[tokenId].amount) > MIN_BID,
+                amount.sub(auctions[tokenId].amount) >= MIN_BID,
                 "Must send more than last bid by MIN_BID amount"
             );
-
             // Refund the previous bidder.
             transferETHOrWETH(
                 auctions[tokenId].bidder,

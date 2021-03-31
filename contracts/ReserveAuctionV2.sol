@@ -55,7 +55,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
      * this public flag will be irrevocably set to false, removing any
      * admin privileges forever.
      */
-    bool public adminRecovery = true;
+    bool private _adminRecovery;
+    bool private _paused;
 
     // A mapping of all of the auctions currently running.
     mapping(uint256 => Auction) public auctions;
@@ -106,6 +107,10 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address payable fundsRecipient
     );
 
+    // Emitted in the case that the contract is paused.
+    event Paused(address account);
+    event Unpaused(address account);
+
     // ============ Modifiers ============
 
     // Reverts if the sender is not admin, or admin
@@ -114,9 +119,15 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         require(
             // The sender must be the admin address, and
             // adminRecovery must be set to true.
-            adminRecoveryAddress == msg.sender && adminRecovery,
+            adminRecoveryAddress == msg.sender && adminRecovery(),
             "Caller does not have admin privileges"
         );
+        _;
+    }
+
+    // Reverts if the contract is paused.
+    modifier whenNotPaused() {
+        require(!paused(), "Contract is paused");
         _;
     }
 
@@ -180,13 +191,8 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         nftContract = nftContract_;
         wethAddress = wethAddress_;
         adminRecoveryAddress = adminRecoveryAddress_;
-    }
-
-    // ============ Miscellanous Extenral ============
-
-    // Returns the version of the ReserveAuction contract.
-    function getVersion() external pure returns (uint256 version) {
-        version = RESERVE_AUCTION_VERSION;
+        _paused = false;
+        _adminRecovery = true;
     }
 
     // ============ Create Auction ============
@@ -197,7 +203,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         uint256 reservePrice,
         address creator,
         address payable fundsRecipient
-    ) external nonReentrant auctionNonExistant(tokenId) {
+    ) external nonReentrant whenNotPaused auctionNonExistant(tokenId) {
         require(creator != address(0));
         require(fundsRecipient != address(0));
 
@@ -229,6 +235,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         external
         payable
         nonReentrant
+        whenNotPaused
         auctionExists(tokenId)
         auctionNotExpired(tokenId)
     {
@@ -288,6 +295,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     function endAuction(uint256 tokenId)
         external
         nonReentrant
+        whenNotPaused
         auctionComplete(tokenId)
     {
         address winner = auctions[tokenId].bidder;
@@ -356,7 +364,17 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     // Irrevocably turns off admin recovery.
     function turnOffAdminRecovery() external onlyAdminRecovery {
-        adminRecovery = false;
+        _adminRecovery = false;
+    }
+
+    function pauseContract() external onlyAdminRecovery {
+        _paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpauseContract() external onlyAdminRecovery {
+        _paused = false;
+        emit Unpaused(msg.sender);
     }
 
     // Allows the admin to transfer any NFT from this contract
@@ -371,8 +389,27 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     // Allows the admin to transfer any ETH from this contract
     // to the recovery address.
-    function recoverETH(uint256 amount) external onlyAdminRecovery {
-        maybeTransferETH(adminRecoveryAddress, amount);
+    function recoverETH(uint256 amount)
+        external
+        onlyAdminRecovery
+        returns (bool success)
+    {
+        success = maybeTransferETH(adminRecoveryAddress, amount);
+    }
+
+    // ============ Miscellaneous Public and External ============
+
+    function paused() public view returns (bool) {
+        return _paused;
+    }
+
+    function adminRecovery() public view returns (bool) {
+        return _adminRecovery;
+    }
+
+    // Returns the version of the ReserveAuction contract.
+    function getVersion() external pure returns (uint256 version) {
+        version = RESERVE_AUCTION_VERSION;
     }
 
     // ============ Private Functions ============

@@ -25,22 +25,29 @@ interface IWETH {
 contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
     using SafeMath for uint256;
 
-    //======= Constants =======
+    // ============ Constants ============
 
+    // Interface constant for ERC721, to check values in constructor.
     bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
-    // 15 min
+    // The time buffer added after bids added; set to 15 min.
     uint16 public constant TIME_BUFFER = 900;
-    // 0.001 ETH
+    // The ETH needed above the current bid for a new bid to be valid.
+    // Set to 0.001 ETH.
     uint64 public constant MIN_BID = 1e15;
+    // Allows external read `getVersion()` to return a version for the auction.
+    uint256 internal constant RESERVE_AUCTION_VERSION = 1;
 
-    //======= Immutable Storage =======
+    // ============ Immutable Storage ============
 
+    // The address of the ERC721 contract for tokens auctioned via this contract.
     address public nftContract;
+    // The address of the WETH contract, so that ETH can be transferred via
+    // WETH if native ETH transfers fail.
     address public immutable wethAddress;
     // The address that initially is able to recover assets.
     address public immutable adminRecoveryAddress;
 
-    //======= Mutable Storage =======
+    // ============ Mutable Storage ============
 
     /**
      * To start, there will be and admin account that can
@@ -52,7 +59,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
 
     mapping(uint256 => Auction) public auctions;
 
-    //======= Structs =======
+    // ============ Structs ============
     struct Auction {
         uint256 amount;
         uint256 duration;
@@ -63,7 +70,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address payable fundsRecipient;
     }
 
-    //======= Events =======
+    // ============ Events ============
     event AuctionCreated(
         uint256 indexed tokenId,
         address nftContractAddress,
@@ -96,7 +103,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         address payable fundsRecipient
     );
 
-    //======= Modifiers =======
+    // ============ Modifiers ============
 
     // Reverts if the sender is not admin, or admin
     // functionality has been turned off.
@@ -156,7 +163,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         _;
     }
 
-    //======= Constructor =======
+    // ============ Constructor ============
 
     constructor(
         address nftContract_,
@@ -172,7 +179,14 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         adminRecoveryAddress = adminRecoveryAddress_;
     }
 
-    //======= Create Auction =======
+    // ============ Miscellanous Extenral ============
+
+    // Returns the version of the ReserveAuction contract.
+    function getVersion() external pure returns (uint256 version) {
+        version = RESERVE_AUCTION_VERSION;
+    }
+
+    // ============ Create Auction ============
 
     function createAuction(
         uint256 tokenId,
@@ -206,7 +220,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
     }
 
-    //======= Create Bid =======
+    // ============ Create Bid ============
 
     function createBid(uint256 tokenId, uint256 amount)
         external
@@ -266,7 +280,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         emit AuctionBid(tokenId, nftContract, msg.sender, amount);
     }
 
-    //======= End Auction =======
+    // ============ End Auction ============
 
     function endAuction(uint256 tokenId)
         external
@@ -317,7 +331,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         );
     }
 
-    //======= Cancel Auction =======
+    // ============ Cancel Auction ============
 
     function cancelAuction(uint256 tokenId)
         external
@@ -335,7 +349,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         emit AuctionCanceled(tokenId, nftContract, creator);
     }
 
-    //======= Admin Functions =======
+    // ============ Admin Functions ============
 
     // Irrevocably turns off admin recovery.
     function turnOffAdminRecovery() external onlyAdminRecovery {
@@ -358,7 +372,7 @@ contract ReserveAuctionV2 is Ownable, ReentrancyGuard {
         maybeTransferETH(adminRecoveryAddress, amount);
     }
 
-    //======= Private Functions =======
+    // ============ Private Functions ============
 
     // Will attent to transfer ETH, and will transfer WETH instead if it fails.
     function transferETHOrWETH(address to, uint256 value) private {

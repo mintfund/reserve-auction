@@ -39,7 +39,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // ============ Immutable Storage ============
 
     // The address of the ERC721 contract for tokens auctioned via this contract.
-    address public nftContract;
+    address public immutable nftContract;
     // The address of the WETH contract, so that ETH can be transferred via
     // WETH if native ETH transfers fail.
     address public immutable wethAddress;
@@ -187,9 +187,11 @@ contract ReserveAuctionV2 is ReentrancyGuard {
             IERC165(nftContract_).supportsInterface(ERC721_INTERFACE_ID),
             "Doesn't support NFT interface"
         );
+        // Initialize immutable memory.
         nftContract = nftContract_;
         wethAddress = wethAddress_;
         adminRecoveryAddress = adminRecoveryAddress_;
+        // Initialize mutable memory.
         _paused = false;
         _adminRecovery = true;
     }

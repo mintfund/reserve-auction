@@ -9,7 +9,6 @@ import {
   ReserveAuctionV2Factory,
   Media,
   WethFactory,
-  CrowdfundV2Factory,
   EthRejecterFactory,
   EthRejecter,
   EthReceiverFactory,
@@ -21,7 +20,7 @@ import Decimal from '../utils/Decimal';
 import { generatedWallets } from '../utils/generatedWallets';
 import { Wallet } from '@ethersproject/wallet';
 import { BigNumber, Bytes, ContractTransaction, ethers } from 'ethers';
-import { recoverAddress, sha256 } from 'ethers/lib/utils';
+import { sha256 } from 'ethers/lib/utils';
 import { signPermit } from './utils';
 
 chai.use(asPromised);
@@ -32,17 +31,14 @@ const blockchain = new Blockchain(provider);
 const NULL_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 const ERROR_MESSAGES = {
-  NOT_NFT: "Doesn't support NFT interface",
   NOT_OWNER: 'Ownable: caller is not the owner',
   AUCTION_ALREADY_EXISTS: 'Auction already exists',
   AUCTION_DOESNT_EXIST: "Auction doesn't exist",
   INVALID_AMOUNT: "Amount doesn't equal msg.value",
   AUCTION_EXPIRED: 'Auction expired',
-  BID_TOO_LOW: 'Must send more than last bid',
-  NOT_MIN_BID: 'Must send more than last bid by MIN_BID amount',
+  NOT_MIN_BID: 'Must bid more than last bid by MIN_BID_INCREMENT amount',
   ONLY_AUCTION_CREATOR: 'Can only be called by auction creator',
   AUCTION_ALREADY_STARTED: 'Auction already started',
-  AUCTION_HASNT_BEGUN: "Auction hasn't begun",
   AUCTION_HASNT_COMPLETED: "Auction hasn't completed",
   CALLER_NOT_ADMIN: 'Caller does not have admin privileges',
 };
@@ -509,7 +505,7 @@ describe('ReserveAuctionV2', () => {
               auctionAsSecondBidder.createBid(tokenId, oneETH(), {
                 value: oneETH(),
               })
-            ).rejectedWith(ERROR_MESSAGES.BID_TOO_LOW);
+            ).rejectedWith(ERROR_MESSAGES.NOT_MIN_BID);
           });
         });
 
@@ -619,10 +615,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should use 65989 gas', async () => {
+        it('should use 65922 gas', async () => {
           const receipt = await tx.wait();
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('65989');
+          expect(gasUsed.toString()).to.eq('65922');
         });
       });
     });
@@ -650,10 +646,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it('should cost 104680 gas', async () => {
+      it('should cost 104613 gas', async () => {
         const receipt = await tx.wait();
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('104680');
+        expect(gasUsed.toString()).to.eq('104613');
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -1121,9 +1117,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should cost 100852 gas', () => {
+        it('should cost 100863 gas', () => {
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('100852');
+          expect(gasUsed.toString()).to.eq('100863');
         });
       });
     });
@@ -1210,9 +1206,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
       });
 
-      it('should cost 137663 gas', () => {
+      it('should cost 137596 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('137663');
+        expect(gasUsed.toString()).to.eq('137596');
       });
     });
 
@@ -1255,9 +1251,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq("0");
       });
 
-      it('should cost 90250 gas', () => {
+      it('should cost 90183 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('90250');
+        expect(gasUsed.toString()).to.eq('90183');
       });
     });
 
@@ -1300,9 +1296,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
       });
 
-      it('should cost 115099 gas', () => {
+      it('should cost 114965 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('115099');
+        expect(gasUsed.toString()).to.eq('114965');
       });
     });
   });

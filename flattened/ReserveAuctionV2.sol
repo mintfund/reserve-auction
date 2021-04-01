@@ -1,5 +1,4 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-
 pragma solidity 0.6.8;
 pragma experimental ABIEncoderV2;
 
@@ -672,11 +671,10 @@ contract ReserveAuctionV2 is ReentrancyGuard {
 
     // ============ Constants ============
 
-    // The time buffer added after bids added; set to 15 min.
+    // The minimum amount of time left in an auction after a new bid is created; 15 min.
     uint16 public constant TIME_BUFFER = 900;
-    // The ETH needed above the current bid for a new bid to be valid.
-    // Set to 0.001 ETH.
-    uint64 public constant MIN_BID = 1e15;
+    // The ETH needed above the current bid for a new bid to be valid; 0.001 ETH.
+    uint64 public constant MIN_BID_INCREMENT = 1e15;
     // Interface constant for ERC721, to check values in constructor.
     bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
     // Allows external read `getVersion()` to return a version for the auction.
@@ -849,7 +847,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     ) public {
         require(
             IERC165(nftContract_).supportsInterface(ERC721_INTERFACE_ID),
-            "Doesn't support NFT interface"
+            "Contract at nftContract_ address does not support NFT interface"
         );
         // Initialize immutable memory.
         nftContract = nftContract_;
@@ -907,7 +905,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     {
         // Check basic input requirements.
         require(amount == msg.value, "Amount doesn't equal msg.value");
-        require(amount > 0, "Amount must be greater than nothing");
+        require(amount > 0, "Amount must be greater than 0");
         // Check if the current bid amount is 0.
         if (auctions[tokenId].amount == 0) {
             // If so, it is the first bid.
@@ -921,8 +919,8 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         } else {
             // Check that the new bid is sufficiently higher than the previous bid.
             require(
-                amount.sub(auctions[tokenId].amount) >= MIN_BID,
-                "Must send more than last bid by MIN_BID amount"
+                amount.sub(auctions[tokenId].amount) >= MIN_BID_INCREMENT,
+                "Must bid more than last bid by MIN_BID_INCREMENT amount"
             );
             // Refund the previous bidder.
             transferETHOrWETH(
@@ -936,13 +934,13 @@ contract ReserveAuctionV2 is ReentrancyGuard {
                 tokenId,
                 amount
             ),
-            "Market: ask invalid for share splitting"
+            "Bid would cause invalid split from Zora market"
         );
         // Update the current auction.
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
         // Compare the auction's end time with the current time plus the 15 minute extension,
-        // To see whether we're near the auctions end and should extend the auction.
+        // to see whether we're near the auctions end and should extend the auction.
         if (auctionEnds(tokenId) < block.timestamp.add(TIME_BUFFER)) {
             // We add onto the duration whenever time increment is required, so
             // that the auctionEnds at the current time plus the buffer.

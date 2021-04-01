@@ -302,7 +302,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
         // Compare the auction's end time with the current time plus the 15 minute extension,
-        // To see whether we're near the auctions end and should extend the auction.
+        // to see whether we're near the auctions end and should extend the auction.
         if (auctionEnds(tokenId) < block.timestamp.add(TIME_BUFFER)) {
             // We add onto the duration whenever time increment is required, so
             // that the auctionEnds at the current time plus the buffer.

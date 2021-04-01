@@ -124,6 +124,15 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         _;
     }
 
+    // Reverts if the sender is not the auction's creator.
+    modifier onlyCreator(uint256 tokenId) {
+        require(
+            auctions[tokenId].creator == msg.sender,
+            "Can only be called by auction creator"
+        );
+        _;
+    }
+
     // Reverts if the contract is paused.
     modifier whenNotPaused() {
         require(!paused(), "Contract is paused");
@@ -147,19 +156,11 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // Reverts if the auction is expired.
     modifier auctionNotExpired(uint256 tokenId) {
         require(
+            // Auction is not expired if there's never been a bid, or if the
+            // current time is less than the time at which the auction ends.
             auctions[tokenId].firstBidTime == 0 ||
-                block.timestamp <
-                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
+                block.timestamp < auctionEnds(tokenId),
             "Auction expired"
-        );
-        _;
-    }
-
-    // Reverts if the sender is not the auction's creator.
-    modifier onlyCreator(uint256 tokenId) {
-        require(
-            auctions[tokenId].creator == msg.sender,
-            "Can only be called by auction creator"
         );
         _;
     }
@@ -168,9 +169,10 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // Auction is complete if there was a bid, and the time has run out.
     modifier auctionComplete(uint256 tokenId) {
         require(
+            // Auction is complete if there has been a bid, and the current time
+            // is greater than the auction's end time.
             auctions[tokenId].firstBidTime > 0 &&
-                block.timestamp >=
-                auctions[tokenId].firstBidTime + auctions[tokenId].duration,
+                block.timestamp >= auctionEnds(tokenId),
             "Auction hasn't completed"
         );
         _;
@@ -277,13 +279,14 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         // Update the current auction.
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
-        // Check whether we should extend the auction running time.
-        if (
-            auctions[tokenId].firstBidTime.add(auctions[tokenId].duration).sub(
-                block.timestamp
-            ) < TIME_BUFFER
-        ) {
-            auctions[tokenId].duration += TIME_BUFFER;
+        // Compare the auction's end time with the current time plus the 15 minute extension,
+        // To see whether we're near the auctions end and should extend the auction.
+        if (auctionEnds(tokenId) < block.timestamp.add(TIME_BUFFER)) {
+            // We add onto the duration whenever time increment is required, so
+            // that the auctionEnds at the current time plus the buffer.
+            auctions[tokenId].duration += block.timestamp.add(TIME_BUFFER).sub(
+                auctionEnds(tokenId)
+            );
         }
         // Emit the event that a bid has been made.
         emit AuctionBid(tokenId, nftContract, msg.sender, amount);
@@ -448,5 +451,9 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         // The auction does not exist if the creator is the null address,
         // since the NFT would not have been transferred.
         return auctions[tokenId].creator == address(0);
+    }
+
+    function auctionEnds(uint256 tokenId) private view returns (uint256) {
+        return auctions[tokenId].firstBidTime.add(auctions[tokenId].duration);
     }
 }

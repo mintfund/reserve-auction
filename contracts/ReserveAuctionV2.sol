@@ -295,7 +295,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
                 tokenId,
                 amount
             ),
-            "Market: ask invalid for share splitting"
+            "Bid would cause invalid split from Zora market"
         );
         // Update the current auction.
         auctions[tokenId].amount = amount;

@@ -2,13 +2,18 @@
 pragma solidity 0.6.8;
 pragma experimental ABIEncoderV2;
 
+// OpenZeppelin library for performing math operations without overflows.
 import {SafeMath} from "@openzeppelin/contracts/math/SafeMath.sol";
-import {IMarket} from "./interfaces/IMarket.sol";
-import {IERC165} from "@openzeppelin/contracts/introspection/IERC165.sol";
-import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+// OpenZeppelin security library for preventing reentrancy attacks.
 import {
     ReentrancyGuard
 } from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+// For interacting with Zora's Market contract.
+import {IMarket} from "./interfaces/IMarket.sol";
+// For checking `supportsInterface`.
+import {IERC165} from "@openzeppelin/contracts/introspection/IERC165.sol";
+// For interacting with NFT tokens.
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 contract IMediaModified {
     mapping(uint256 => address) public tokenCreators;
@@ -22,19 +27,20 @@ interface IWETH {
 }
 
 contract ReserveAuctionV2 is ReentrancyGuard {
+    // Use OpenZeppelin's SafeMath library to prevent overflows.
     using SafeMath for uint256;
 
     // ============ Constants ============
 
-    // Interface constant for ERC721, to check values in constructor.
-    bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
     // The time buffer added after bids added; set to 15 min.
     uint16 public constant TIME_BUFFER = 900;
     // The ETH needed above the current bid for a new bid to be valid.
     // Set to 0.001 ETH.
     uint64 public constant MIN_BID = 1e15;
+    // Interface constant for ERC721, to check values in constructor.
+    bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
     // Allows external read `getVersion()` to return a version for the auction.
-    uint256 internal constant RESERVE_AUCTION_VERSION = 1;
+    uint256 private constant RESERVE_AUCTION_VERSION = 1;
 
     // ============ Immutable Storage ============
 
@@ -49,12 +55,18 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // ============ Mutable Storage ============
 
     /**
-     * To start, there will be and admin account that can
-     * recover funds if anything goes wrong. Later,
-     * this public flag will be irrevocably set to false, removing any
-     * admin privileges forever.
+     * To start, there will be an admin account that can recover funds
+     * if anything goes wrong. Later, this public flag will be irrevocably
+     * set to false, removing any admin privileges forever.
+     *
+     * To check if admin recovery is enabled, call the public function `adminRecoveryEnabled()`.
      */
-    bool private _adminRecovery;
+    bool private _adminRecoveryEnabled;
+    /**
+     * The account `adminRecoveryAddress` can also pause the contracts
+     * while _adminRecoveryEnabled is enabled. This prevents people from using
+     * the contract if there is a known problem with it.
+     */
     bool private _paused;
 
     // A mapping of all of the auctions currently running.
@@ -63,12 +75,21 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // ============ Structs ============
 
     struct Auction {
+        // The value of the current highest bid.
         uint256 amount;
+        // The amount of time that the auction should run for,
+        // after the first bid was made.
         uint256 duration;
+        // The time of the first bid.
         uint256 firstBidTime;
+        // The minimum price of the first bid.
         uint256 reservePrice;
+        // The address of the auction's creator. The creator
+        // can cancel the auction if it hasn't had a bid yet.
         address creator;
+        // The address of the current highest bid.
         address payable bidder;
+        // The address that should receive funds once the NFT is sold.
         address payable fundsRecipient;
     }
 
@@ -108,6 +129,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
 
     // Emitted in the case that the contract is paused.
     event Paused(address account);
+    // Emitted when the contract is unpaused.
     event Unpaused(address account);
 
     // ============ Modifiers ============
@@ -118,7 +140,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         require(
             // The sender must be the admin address, and
             // adminRecovery must be set to true.
-            adminRecoveryAddress == msg.sender && adminRecovery(),
+            adminRecoveryAddress == msg.sender && adminRecoveryEnabled(),
             "Caller does not have admin privileges"
         );
         _;
@@ -195,7 +217,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         adminRecoveryAddress = adminRecoveryAddress_;
         // Initialize mutable memory.
         _paused = false;
-        _adminRecovery = true;
+        _adminRecoveryEnabled = true;
     }
 
     // ============ Create Auction ============
@@ -372,7 +394,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
 
     // Irrevocably turns off admin recovery.
     function turnOffAdminRecovery() external onlyAdminRecovery {
-        _adminRecovery = false;
+        _adminRecoveryEnabled = false;
     }
 
     function pauseContract() external onlyAdminRecovery {
@@ -389,71 +411,83 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // to the recovery address.
     function recoverNFT(uint256 tokenId) external onlyAdminRecovery {
         IERC721(nftContract).transferFrom(
+            // From the auction contract.
             address(this),
+            // To the recovery account.
             adminRecoveryAddress,
+            // For the specified token.
             tokenId
         );
     }
 
-    // Allows the admin to transfer any ETH from this contract
-    // to the recovery address.
+    // Allows the admin to transfer any ETH from this contract to the recovery address.
     function recoverETH(uint256 amount)
         external
         onlyAdminRecovery
         returns (bool success)
     {
-        success = maybeTransferETH(adminRecoveryAddress, amount);
+        // Attempt an ETH transfer to the recovery account, and return true if it succeeds.
+        success = attemptETHTransfer(adminRecoveryAddress, amount);
     }
 
     // ============ Miscellaneous Public and External ============
 
+    // Returns true if the contract is paused.
     function paused() public view returns (bool) {
         return _paused;
     }
 
-    function adminRecovery() public view returns (bool) {
-        return _adminRecovery;
+    // Returns true if admin recovery is enabled.
+    function adminRecoveryEnabled() public view returns (bool) {
+        return _adminRecoveryEnabled;
     }
 
-    // Returns the version of the ReserveAuction contract.
+    // Returns the version of the deployed contract.
     function getVersion() external pure returns (uint256 version) {
         version = RESERVE_AUCTION_VERSION;
     }
 
     // ============ Private Functions ============
 
-    // Will attent to transfer ETH, and will transfer WETH instead if it fails.
+    // Will attempt to transfer ETH, but will transfer WETH instead if it fails.
     function transferETHOrWETH(address to, uint256 value) private {
         // Try to transfer ETH to the given recipient.
-        if (!maybeTransferETH(to, value)) {
+        if (!attemptETHTransfer(to, value)) {
             // If the transfer fails, wrap and send as WETH, so that
             // the auction is not impeded and the recipient still
-            // can claim ETH via WETH.
+            // can claim ETH via the WETH contract (similar to escrow).
             IWETH(wethAddress).deposit{value: value}();
             IWETH(wethAddress).transfer(to, value);
+            // At this point, the recipient can unwrap WETH.
         }
     }
 
-    // Send is not guaranteed to transfer ETH, and will return false if
-    // it fails. Therefore, we must handle failure cases manually from
-    // this function.
-    function maybeTransferETH(address to, uint256 value)
+    // Sending ETH is not guaranteed complete, and the method used here will return false if
+    // it fails. For example, a contract can block ETH transfer, or might use
+    // an excessive amount of gas, thereby griefing a new bidder.
+    // We should limit the gas used in transfers, and handle failure cases.
+    function attemptETHTransfer(address to, uint256 value)
         private
         returns (bool)
     {
-        // Increase gas limit a reasonable amount, and try to send ETH to recipient
-        // NOTE: Must handle reentrancy vulnerability from this.
-        (bool success, ) = to.call{value: value, gas: 35000}("");
+        // Here increase the gas limit a reasonable amount above the default, and try
+        // to send ETH to the recipient.
+        // NOTE: This might allow the recipient to attempt a limited reentrancy attack.
+        (bool success, ) = to.call{value: value, gas: 30000}("");
         return success;
     }
 
+    // Returns true if the auction's creator is set to the null address.
     function auctionCreatorIsNull(uint256 tokenId) private view returns (bool) {
         // The auction does not exist if the creator is the null address,
-        // since the NFT would not have been transferred.
+        // since the NFT would not have been transferred in `createAuction`.
         return auctions[tokenId].creator == address(0);
     }
 
+    // Returns the timestamp at which an auction will finish.
     function auctionEnds(uint256 tokenId) private view returns (uint256) {
+        // Derived by adding the auction's duration to the time of the first bid.
+        // NOTE: duration can be extended conditionally after each new bid is added.
         return auctions[tokenId].firstBidTime.add(auctions[tokenId].duration);
     }
 }

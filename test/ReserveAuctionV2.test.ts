@@ -36,7 +36,7 @@ const ERROR_MESSAGES = {
   AUCTION_DOESNT_EXIST: "Auction doesn't exist",
   INVALID_AMOUNT: "Amount doesn't equal msg.value",
   AUCTION_EXPIRED: 'Auction expired',
-  NOT_MIN_BID: 'Must bid more than last bid by MIN_BID_INCREMENT amount',
+  NOT_MIN_BID: 'Must bid more than last bid by MIN_BID_INCREMENT_PERCENT amount',
   ONLY_AUCTION_CREATOR: 'Can only be called by auction creator',
   AUCTION_ALREADY_STARTED: 'Auction already started',
   AUCTION_HASNT_COMPLETED: "Auction hasn't completed",
@@ -615,10 +615,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should use 65922 gas', async () => {
+        it('should use 67096 gas', async () => {
           const receipt = await tx.wait();
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('65922');
+          expect(gasUsed.toString()).to.eq('67096');
         });
       });
     });
@@ -646,10 +646,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it('should cost 104613 gas', async () => {
+      it('should cost 104680 gas', async () => {
         const receipt = await tx.wait();
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('104613');
+        expect(gasUsed.toString()).to.eq('104680');
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -1117,9 +1117,9 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should cost 100863 gas', () => {
+        it('should cost 100852 gas', () => {
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('100863');
+          expect(gasUsed.toString()).to.eq('100852');
         });
       });
     });
@@ -1206,9 +1206,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
       });
 
-      it('should cost 137596 gas', () => {
+      it('should cost 138770 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('137596');
+        expect(gasUsed.toString()).to.eq('138770');
       });
     });
 
@@ -1251,9 +1251,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq("0");
       });
 
-      it('should cost 90183 gas', () => {
+      it('should cost 91357 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('90183');
+        expect(gasUsed.toString()).to.eq('91357');
       });
     });
 
@@ -1296,9 +1296,9 @@ describe('ReserveAuctionV2', () => {
         expect((await contractWethBalance).toString()).to.eq(oneETH().toString());
       });
 
-      it('should cost 114965 gas', () => {
+      it('should cost 116206 gas', () => {
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('114965');
+        expect(gasUsed.toString()).to.eq('116206');
       });
     });
   });

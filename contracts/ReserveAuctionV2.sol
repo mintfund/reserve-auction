@@ -35,7 +35,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
     // The minimum amount of time left in an auction after a new bid is created; 15 min.
     uint16 public constant TIME_BUFFER = 900;
     // The ETH needed above the current bid for a new bid to be valid; 0.001 ETH.
-    uint64 public constant MIN_BID_INCREMENT = 1e15;
+    uint8 public constant MIN_BID_INCREMENT_PERCENT = 10;
     // Interface constant for ERC721, to check values in constructor.
     bytes4 private constant ERC721_INTERFACE_ID = 0x80ac58cd;
     // Allows external read `getVersion()` to return a version for the auction.
@@ -278,11 +278,20 @@ contract ReserveAuctionV2 is ReentrancyGuard {
                 "Must bid reservePrice or more"
             );
         } else {
-            // Check that the new bid is sufficiently higher than the previous bid.
+            // Check that the new bid is sufficiently higher than the previous bid, by
+            // the percentage defined as MIN_BID_INCREMENT_PERCENT.
             require(
-                amount.sub(auctions[tokenId].amount) >= MIN_BID_INCREMENT,
-                "Must bid more than last bid by MIN_BID_INCREMENT amount"
+                amount >=
+                    auctions[tokenId].amount.add(
+                        // Add 10% of the current bid to the current bid.
+                        auctions[tokenId]
+                            .amount
+                            .mul(MIN_BID_INCREMENT_PERCENT)
+                            .div(100)
+                    ),
+                "Must bid more than last bid by MIN_BID_INCREMENT_PERCENT amount"
             );
+
             // Refund the previous bidder.
             transferETHOrWETH(
                 auctions[tokenId].bidder,

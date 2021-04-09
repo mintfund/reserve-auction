@@ -26,7 +26,7 @@ interface IWETH {
     function transfer(address to, uint256 value) external returns (bool);
 }
 
-contract ReserveAuctionV2 is ReentrancyGuard {
+contract ReserveAuctionV3 is ReentrancyGuard {
     // Use OpenZeppelin's SafeMath library to prevent overflows.
     using SafeMath for uint256;
 

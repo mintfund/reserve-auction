@@ -5,8 +5,8 @@ import { Blockchain } from '../utils/Blockchain';
 import {
   MarketFactory,
   MediaFactory,
-  ReserveAuctionV2,
-  ReserveAuctionV2Factory,
+  ReserveAuctionV3,
+  ReserveAuctionV3Factory,
   Media,
   WethFactory,
   EthRejecterFactory,
@@ -165,7 +165,7 @@ async function deploy() {
   reentrancyAttackerAddress = reentrancyAttacker.address;
 
   const auction = await (
-    await new ReserveAuctionV2Factory(deployerWallet).deploy(
+    await new ReserveAuctionV3Factory(deployerWallet).deploy(
       mediaAddress,
       wethAddress,
       adminRecoveryAddress.address
@@ -227,8 +227,8 @@ async function mintTokenAs(wallet: Wallet) {
   return lastToken;
 }
 
-async function auctionAs(wallet: Wallet): Promise<ReserveAuctionV2> {
-  return ReserveAuctionV2Factory.connect(auctionAddress, wallet);
+async function auctionAs(wallet: Wallet): Promise<ReserveAuctionV3> {
+  return ReserveAuctionV3Factory.connect(auctionAddress, wallet);
 }
 
 async function ethRejecterAs(wallet: Wallet): Promise<EthRejecter> {
@@ -319,7 +319,7 @@ async function getGasAmountFromTx(tx) {
   return gasUsed.mul(gasPrice);
 }
 
-describe('ReserveAuctionV2', () => {
+describe('ReserveAuctionV3', () => {
   beforeEach(async () => {
     await deploy();
   });
@@ -1536,7 +1536,7 @@ describe('ReserveAuctionV2', () => {
           );
 
           expect((await contractWethBalance).toString()).to.eq(
-            oneETH()
+            oneETH().toString()
           );
         });
 

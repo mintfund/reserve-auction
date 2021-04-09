@@ -30,6 +30,27 @@ const blockchain = new Blockchain(provider);
 
 const NULL_ADDRESS = '0x0000000000000000000000000000000000000000';
 
+// Test a simple case, as well as some other tricky numbers.
+const bidCasesToTest = [
+  '2000000000000000000',
+  '1234567891234567891',
+  '2222222222222222222',
+  '3333333333333333333',
+  '5555555555555555555',
+  '9999999999999999999',
+  // Some random bid numbers:
+  '158134551011714294',
+  '634204952770520617',
+  '59188223259592080',
+  '17570476732738631',
+  '83671249304232044',
+  '514248157864491240',
+  '63714481580729030',
+  '139296974387483490',
+  '12715907252298855',
+  '977541585289014023',
+];
+
 const ERROR_MESSAGES = {
   NOT_OWNER: 'Ownable: caller is not the owner',
   AUCTION_ALREADY_EXISTS: 'Auction already exists',
@@ -38,17 +59,17 @@ const ERROR_MESSAGES = {
   AUCTION_EXPIRED: 'Auction expired',
   NOT_MIN_BID:
     'Must bid more than last bid by MIN_BID_INCREMENT_PERCENT amount',
+  BID_NOT_ZERO: 'Amount must be greater than 0',
   ONLY_AUCTION_CREATOR: 'Can only be called by auction curator',
   AUCTION_ALREADY_STARTED: 'Auction already started',
   AUCTION_HASNT_COMPLETED: "Auction hasn't completed",
   CALLER_NOT_ADMIN: 'Caller does not have admin privileges',
+  CURATOR_FEE_TOO_HIGH: 'Curator fee should be < 100',
 };
 
 let contentHex: string;
 let contentHash: string;
 let contentHashBytes: Bytes;
-let otherContentHex: string;
-let otherContentHash: string;
 let metadataHex: string;
 let metadataHash: string;
 let metadataHashBytes: Bytes;
@@ -102,10 +123,6 @@ function twoETH(): BigNumber {
 
 function oneETH(): BigNumber {
   return BigNumber.from(10).pow(18);
-}
-
-function halfETH(): BigNumber {
-  return BigNumber.from(10).pow(18).div(0.5);
 }
 
 async function deploy() {
@@ -291,9 +308,6 @@ async function resetBlockchain() {
   contentHex = ethers.utils.formatBytes32String('invert');
   contentHash = await sha256(contentHex);
   contentHashBytes = ethers.utils.arrayify(contentHash);
-
-  otherContentHex = ethers.utils.formatBytes32String('otherthing');
-  otherContentHash = await sha256(otherContentHex);
 }
 
 async function getGasAmountFromTx(tx) {
@@ -391,10 +405,10 @@ describe('ReserveAuctionV2', () => {
           expect(auction.fundsRecipient).eq(fundsRecipientWallet.address);
         });
 
-        it('should use 178713 gas', async () => {
+        it('should use 178742 gas', async () => {
           const receipt = await tx.wait();
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('178713');
+          expect(gasUsed.toString()).to.eq('178742');
         });
 
         it('should transfer the NFT to the auction', async () => {
@@ -578,6 +592,33 @@ describe('ReserveAuctionV2', () => {
           });
         });
 
+        describe('when the amount passed in is 0', () => {
+          const bidAmount = BigNumber.from('0');
+          it('should revert', async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+              curatorFeePercent,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              reservePrice,
+              duration,
+              curatorFeePercent,
+            });
+
+            const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
+
+            await expect(
+              auctionAsFirstBidder.createBid(tokenId, bidAmount, {
+                value: bidAmount,
+              })
+            ).rejectedWith(ERROR_MESSAGES.BID_NOT_ZERO);
+          });
+        });
+
         describe('when the auction is over', () => {
           it('should revert', async () => {
             const {
@@ -660,10 +701,10 @@ describe('ReserveAuctionV2', () => {
           );
         });
 
-        it('should use 67107 gas', async () => {
+        it('should use 56062 gas', async () => {
           const receipt = await tx.wait();
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('67107');
+          expect(gasUsed.toString()).to.eq('56062');
         });
       });
     });
@@ -697,10 +738,10 @@ describe('ReserveAuctionV2', () => {
         expect(auction.amount.toString()).eq(twoETH().toString());
       });
 
-      it('should cost 104691 gas', async () => {
+      it('should cost 93646 gas', async () => {
         const receipt = await tx.wait();
         const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('104691');
+        expect(gasUsed.toString()).to.eq('93646');
       });
 
       it('should emit an AuctionBid event', async () => {
@@ -1139,32 +1180,148 @@ describe('ReserveAuctionV2', () => {
       });
     });
 
-    describe('happy path', () => {
-      describe('when there is one bidder', () => {
+    describe('after a valid auction', () => {
+      for (let i = 0; i < bidCasesToTest.length; i++) {
+        const bidAmount = bidCasesToTest[i];
+
+        describe(`when there was one bidder with a bid of ${ethers.utils.formatEther(
+          bidAmount
+        )} ETH`, () => {
+          let nftOwnerBeforeEndAuction,
+            nftOwnerAfterEndAuction,
+            auctionBeforeEndAuction,
+            auctionAfterEndAuction,
+            beforeCreatorBalance,
+            afterCreatorBalance,
+            beforeFundsRecipientBalance,
+            afterFundsRecipientBalance,
+            creatorAmount;
+          let receipt;
+
+          beforeEach(async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+              curatorFeePercent,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              // Absurdly low reserve price, since that's not what we're testing.
+              reservePrice: BigNumber.from('1'),
+              duration,
+              curatorFeePercent,
+            });
+
+            const auctionAsBidder = await auctionAs(firstBidderWallet);
+
+            let tx = await auctionAsBidder.createBid(tokenId, bidAmount, {
+              value: bidAmount,
+            });
+
+            await tx.wait();
+            await blockchain.increaseTimeAsync(duration);
+
+            const nftContractAsCreator = await mediaAs(creatorWallet);
+
+            nftOwnerBeforeEndAuction = await nftContractAsCreator.ownerOf(
+              tokenId
+            );
+
+            auctionBeforeEndAuction = await auctionAsBidder.auctions(tokenId);
+            beforeCreatorBalance = await creatorWallet.getBalance();
+            beforeFundsRecipientBalance = await fundsRecipientWallet.getBalance();
+
+            const market = await marketAs(creatorWallet);
+            const creatorShare = await market.bidSharesForToken(tokenId);
+
+            creatorAmount = await market.splitShare(
+              creatorShare.creator,
+              bidAmount
+            );
+
+            const endAuctionTx = await auctionAsBidder.endAuction(tokenId);
+            receipt = await endAuctionTx.wait();
+
+            nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(
+              tokenId
+            );
+            auctionAfterEndAuction = await auctionAsBidder.auctions(tokenId);
+            afterCreatorBalance = await creatorWallet.getBalance();
+            afterFundsRecipientBalance = await fundsRecipientWallet.getBalance();
+          });
+
+          it('should delete the auction', () => {
+            expect(auctionBeforeEndAuction.curator).eq(curatorWallet.address);
+            expect(auctionAfterEndAuction.curator).eq(NULL_ADDRESS);
+          });
+
+          it('should transfer the NFT from the auction to the winning bidder', () => {
+            expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
+            expect(nftOwnerAfterEndAuction).eq(firstBidderWallet.address);
+          });
+
+          it(`should send the creator to the original creator`, () => {
+            expect(afterCreatorBalance.toString()).eq(
+              beforeCreatorBalance.add(creatorAmount).toString()
+            );
+          });
+
+          it(`should send the rest of the bid amount to the funds recipient`, () => {
+            expect(afterFundsRecipientBalance.toString()).eq(
+              beforeFundsRecipientBalance
+                .add(bidAmount)
+                .sub(creatorAmount)
+                .toString()
+            );
+          });
+
+          it('should cost 100739 gas', () => {
+            const { gasUsed } = receipt;
+            expect(gasUsed.toString()).to.eq('100739');
+          });
+        });
+      }
+
+      describe('when there is a 100 percent curator fee', () => {
+        it('reverts with error "Curator fee should be < 100"', async () => {
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
+
+          await expect(
+            setupAuction({
+              tokenId,
+              reservePrice,
+              duration,
+              curatorFeePercent: 100,
+            })
+          ).rejectedWith(ERROR_MESSAGES.CURATOR_FEE_TOO_HIGH);
+        });
+      });
+
+      describe('when there is a 5 percent curator fee', () => {
         let nftOwnerBeforeEndAuction,
           nftOwnerAfterEndAuction,
           auctionBeforeEndAuction,
           auctionAfterEndAuction,
+          beforeCuratorBalance,
+          afterCuratorBalance,
           beforeCreatorBalance,
           afterCreatorBalance,
           beforeFundsRecipientBalance,
           afterFundsRecipientBalance,
+          curatorAmount,
           creatorAmount;
         let receipt;
 
         beforeEach(async () => {
-          const {
-            tokenId,
-            reservePrice,
-            duration,
-            curatorFeePercent,
-          } = await setupAuctionData();
+          const { tokenId, reservePrice, duration } = await setupAuctionData();
 
           await setupAuction({
             tokenId,
             reservePrice,
             duration,
-            curatorFeePercent,
+            curatorFeePercent: 5,
           });
 
           const auctionAsBidder = await auctionAs(firstBidderWallet);
@@ -1184,14 +1341,16 @@ describe('ReserveAuctionV2', () => {
 
           auctionBeforeEndAuction = await auctionAsBidder.auctions(tokenId);
           beforeCreatorBalance = await creatorWallet.getBalance();
+          beforeCuratorBalance = await curatorWallet.getBalance();
           beforeFundsRecipientBalance = await fundsRecipientWallet.getBalance();
 
           const market = await marketAs(creatorWallet);
           const creatorShare = await market.bidSharesForToken(tokenId);
 
+          curatorAmount = twoETH().div(100).mul(5);
           creatorAmount = await market.splitShare(
             creatorShare.creator,
-            twoETH()
+            twoETH().sub(curatorAmount)
           );
 
           const endAuctionTx = await auctionAsBidder.endAuction(tokenId);
@@ -1200,6 +1359,7 @@ describe('ReserveAuctionV2', () => {
           nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(tokenId);
           auctionAfterEndAuction = await auctionAsBidder.auctions(tokenId);
           afterCreatorBalance = await creatorWallet.getBalance();
+          afterCuratorBalance = await curatorWallet.getBalance();
           afterFundsRecipientBalance = await fundsRecipientWallet.getBalance();
         });
 
@@ -1213,6 +1373,12 @@ describe('ReserveAuctionV2', () => {
           expect(nftOwnerAfterEndAuction).eq(firstBidderWallet.address);
         });
 
+        it('should send 5% of the amount to the curator address', () => {
+          expect(afterCuratorBalance.toString()).eq(
+            beforeCuratorBalance.add(curatorAmount).toString()
+          );
+        });
+
         it('should send the creator share to the original creator', () => {
           expect(afterCreatorBalance.toString()).eq(
             beforeCreatorBalance.add(creatorAmount).toString()
@@ -1220,320 +1386,268 @@ describe('ReserveAuctionV2', () => {
         });
 
         it('should send the rest of the bid amount to the funds recipient', () => {
-          expect(afterFundsRecipientBalance.toString()).eq(
-            beforeFundsRecipientBalance
-              .add(twoETH())
-              .sub(creatorAmount)
-              .toString()
+          const amountReceived = twoETH().sub(curatorAmount).sub(creatorAmount);
+          const amountWithoutFee = beforeFundsRecipientBalance
+            .add(amountReceived)
+            .toString();
+
+          expect(afterFundsRecipientBalance.toString()).eq(amountWithoutFee);
+        });
+
+        it('should cost 105714 gas', () => {
+          const { gasUsed } = receipt;
+          expect(gasUsed.toString()).to.eq('105714');
+        });
+      });
+
+      for (let i = 0; i < bidCasesToTest.length; i++) {
+        const firstBidAmount = bidCasesToTest[i];
+        const secondBidAmount = BigNumber.from(firstBidAmount)
+          .mul(2)
+          .toString();
+
+        describe(`when there were two bidders, bidding ${ethers.utils.formatEther(
+          firstBidAmount
+        )} and then ${ethers.utils.formatEther(secondBidAmount)} ETH`, () => {
+          let nftOwnerBeforeEndAuction,
+            nftOwnerAfterEndAuction,
+            postBidBalance,
+            originalBalance,
+            gasAmount;
+
+          beforeEach(async () => {
+            const {
+              tokenId,
+              reservePrice,
+              duration,
+              curatorFeePercent,
+            } = await setupAuctionData();
+
+            await setupAuction({
+              tokenId,
+              // Not testing reserve price here, so we'll keep it low.
+              reservePrice: BigNumber.from("1"),
+              duration,
+              curatorFeePercent,
+            });
+
+            const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
+            const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+            originalBalance = await firstBidderWallet.getBalance();
+
+            let tx = await auctionAsFirstBidder.createBid(
+              tokenId,
+              firstBidAmount,
+              {
+                value: firstBidAmount,
+              }
+            );
+            await tx.wait();
+
+            gasAmount = await getGasAmountFromTx(tx);
+
+            postBidBalance = await firstBidderWallet.getBalance();
+
+            tx = await auctionAsSecondBidder.createBid(
+              tokenId,
+              secondBidAmount,
+              {
+                value: secondBidAmount,
+              }
+            );
+            await tx.wait();
+
+            await blockchain.increaseTimeAsync(duration);
+
+            const nftContractAsCreator = await mediaAs(creatorWallet);
+
+            nftOwnerBeforeEndAuction = await nftContractAsCreator.ownerOf(
+              tokenId
+            );
+
+            tx = await auctionAsSecondBidder.endAuction(tokenId);
+            tx.wait();
+
+            nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(
+              tokenId
+            );
+          });
+
+          it('should send the NFT to the second bidder', () => {
+            expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
+            expect(nftOwnerAfterEndAuction).eq(secondBidderWallet.address);
+          });
+
+          it('should refund the first bidder', async () => {
+            expect(postBidBalance.toString()).eq(
+              originalBalance.sub(gasAmount).sub(firstBidAmount).toString()
+            );
+
+            const currentBalance = await firstBidderWallet.getBalance();
+
+            expect(currentBalance.toString()).eq(
+              originalBalance.sub(gasAmount).toString()
+            );
+          });
+        });
+      }
+
+      describe('when the first bidder is a contract that rejects ETH and is outbid', () => {
+        let receipt;
+
+        beforeEach(async () => {
+          const {
+            tokenId,
+            reservePrice,
+            duration,
+            curatorFeePercent,
+          } = await setupAuctionData();
+
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+            curatorFeePercent,
+          });
+
+          const rejecter = await ethRejecterAs(firstBidderWallet);
+          const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+          let tx = await rejecter.relayBid(auctionAddress, tokenId, oneETH(), {
+            value: oneETH(),
+          });
+
+          await tx.wait();
+
+          tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+            value: twoETH(),
+          });
+          receipt = await tx.wait();
+        });
+
+        it("returns the contract's ETH back in WETH", async () => {
+          const balance = await provider.getBalance(ethRejecterAddress);
+          expect(balance.toString()).to.eq('0');
+
+          const wethAsBidder = wethAs(firstBidderWallet);
+          const contractWethBalance = (await wethAsBidder).balanceOf(
+            ethRejecterAddress
+          );
+
+          expect((await contractWethBalance).toString()).to.eq(
+            oneETH()
           );
         });
 
-        it('should cost 100887 gas', () => {
+        it('should cost 127736 gas', () => {
           const { gasUsed } = receipt;
-          expect(gasUsed.toString()).to.eq('100887');
+          expect(gasUsed.toString()).to.eq('127736');
         });
       });
-    });
 
-    describe('when there is a 5 percent curator fee', () => {
-      let nftOwnerBeforeEndAuction,
-        nftOwnerAfterEndAuction,
-        auctionBeforeEndAuction,
-        auctionAfterEndAuction,
-        beforeCuratorBalance,
-        afterCuratorBalance,
-        beforeCreatorBalance,
-        afterCreatorBalance,
-        beforeFundsRecipientBalance,
-        afterFundsRecipientBalance,
-        curatorAmount,
-        creatorAmount;
-      let receipt;
+      describe('when the first bidder is a contract that accepts ETH but uses more gas', () => {
+        let receipt;
 
-      beforeEach(async () => {
-        const { tokenId, reservePrice, duration } = await setupAuctionData();
+        beforeEach(async () => {
+          const {
+            tokenId,
+            reservePrice,
+            duration,
+            curatorFeePercent,
+          } = await setupAuctionData();
 
-        await setupAuction({
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent: 5,
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+            curatorFeePercent,
+          });
+
+          const receiver = await ethReceiverAs(firstBidderWallet);
+          const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+
+          let tx = await receiver.relayBid(auctionAddress, tokenId, oneETH(), {
+            value: oneETH(),
+          });
+
+          await tx.wait();
+
+          tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+            value: twoETH(),
+          });
+          receipt = await tx.wait();
         });
 
-        const auctionAsBidder = await auctionAs(firstBidderWallet);
+        it("returns the contract's ETH back in ETH", async () => {
+          const balance = await provider.getBalance(ethReceiverAddress);
+          expect(balance.toString()).to.eq(oneETH().toString());
 
-        let tx = await auctionAsBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
+          const wethAsBidder = wethAs(firstBidderWallet);
+          const contractWethBalance = (await wethAsBidder).balanceOf(
+            ethReceiverAddress
+          );
+
+          expect((await contractWethBalance).toString()).to.eq('0');
         });
 
-        await tx.wait();
-        await blockchain.increaseTimeAsync(duration);
-
-        const nftContractAsCreator = await mediaAs(creatorWallet);
-
-        nftOwnerBeforeEndAuction = await nftContractAsCreator.ownerOf(tokenId);
-
-        auctionBeforeEndAuction = await auctionAsBidder.auctions(tokenId);
-        beforeCreatorBalance = await creatorWallet.getBalance();
-        beforeCuratorBalance = await curatorWallet.getBalance();
-        beforeFundsRecipientBalance = await fundsRecipientWallet.getBalance();
-
-        const market = await marketAs(creatorWallet);
-        const creatorShare = await market.bidSharesForToken(tokenId);
-
-        curatorAmount = twoETH().div(100).mul(5);
-        creatorAmount = await market.splitShare(creatorShare.creator, twoETH().sub(curatorAmount));
-
-        const endAuctionTx = await auctionAsBidder.endAuction(tokenId);
-        receipt = await endAuctionTx.wait();
-
-        nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(tokenId);
-        auctionAfterEndAuction = await auctionAsBidder.auctions(tokenId);
-        afterCreatorBalance = await creatorWallet.getBalance();
-        afterCuratorBalance = await curatorWallet.getBalance();
-        afterFundsRecipientBalance = await fundsRecipientWallet.getBalance();
+        it('should cost 80323 gas', () => {
+          const { gasUsed } = receipt;
+          expect(gasUsed.toString()).to.eq('80323');
+        });
       });
 
-      it('should delete the auction', () => {
-        expect(auctionBeforeEndAuction.curator).eq(curatorWallet.address);
-        expect(auctionAfterEndAuction.curator).eq(NULL_ADDRESS);
-      });
+      describe('when the first bidder is a contract that attempts reentrancy', () => {
+        let receipt;
 
-      it('should transfer the NFT from the auction to the winning bidder', () => {
-        expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
-        expect(nftOwnerAfterEndAuction).eq(firstBidderWallet.address);
-      });
+        beforeEach(async () => {
+          const {
+            tokenId,
+            reservePrice,
+            duration,
+            curatorFeePercent,
+          } = await setupAuctionData();
 
-      it('should send 5% of the amount to the curator address', () => {
-        expect(afterCuratorBalance.toString()).eq(
-          beforeCuratorBalance.add(curatorAmount).toString()
-        );
-      });
+          await setupAuction({
+            tokenId,
+            reservePrice,
+            duration,
+            curatorFeePercent,
+          });
 
-      it('should send the creator share to the original creator', () => {
-        expect(afterCreatorBalance.toString()).eq(
-          beforeCreatorBalance.add(creatorAmount).toString()
-        );
-      });
+          const attacker = await reentrancyAttackerAs(firstBidderWallet);
+          const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
 
-      it('should send the rest of the bid amount to the funds recipient', () => {
-        const amountReceived = twoETH().sub(curatorAmount).sub(creatorAmount);
-        const amountWithoutFee = beforeFundsRecipientBalance
-          .add(amountReceived)
-          .toString();
+          let tx = await attacker.relayBid(auctionAddress, tokenId, oneETH(), {
+            value: oneETH(),
+          });
 
-        expect(afterFundsRecipientBalance.toString()).eq(amountWithoutFee);
-      });
+          await tx.wait();
 
-      it('should cost 105862 gas', () => {
-        const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('105862');
-      });
-    });
-
-    describe('when there are two bidders', () => {
-      let nftOwnerBeforeEndAuction, nftOwnerAfterEndAuction;
-
-      beforeEach(async () => {
-        const {
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
-        } = await setupAuctionData();
-
-        await setupAuction({
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
+          tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
+            value: twoETH(),
+          });
+          receipt = await tx.wait();
         });
 
-        const auctionAsFirstBidder = await auctionAs(firstBidderWallet);
-        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
+        it("returns the contract's ETH back in WETH", async () => {
+          const balance = await provider.getBalance(reentrancyAttackerAddress);
+          expect(balance.toString()).to.eq('0');
 
-        let tx = await auctionAsFirstBidder.createBid(tokenId, oneETH(), {
-          value: oneETH(),
-        });
-        await tx.wait();
+          const wethAsBidder = wethAs(firstBidderWallet);
+          const contractWethBalance = (await wethAsBidder).balanceOf(
+            reentrancyAttackerAddress
+          );
 
-        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
-        });
-        await tx.wait();
-
-        await blockchain.increaseTimeAsync(duration);
-
-        const nftContractAsCreator = await mediaAs(creatorWallet);
-
-        nftOwnerBeforeEndAuction = await nftContractAsCreator.ownerOf(tokenId);
-
-        tx = await auctionAsSecondBidder.endAuction(tokenId);
-        tx.wait();
-
-        nftOwnerAfterEndAuction = await nftContractAsCreator.ownerOf(tokenId);
-      });
-
-      it('should send the NFT to the second bidder', () => {
-        expect(nftOwnerBeforeEndAuction).eq(auctionAddress);
-        expect(nftOwnerAfterEndAuction).eq(secondBidderWallet.address);
-      });
-    });
-
-    describe('when the first bidder is a contract that rejects ETH and is outbid', () => {
-      let receipt;
-
-      beforeEach(async () => {
-        const {
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
-        } = await setupAuctionData();
-
-        await setupAuction({
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
+          expect((await contractWethBalance).toString()).to.eq(
+            oneETH().toString()
+          );
         });
 
-        const rejecter = await ethRejecterAs(firstBidderWallet);
-        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
-
-        let tx = await rejecter.relayBid(auctionAddress, tokenId, oneETH(), {
-          value: oneETH(),
+        it('should cost 105172 gas', () => {
+          const { gasUsed } = receipt;
+          expect(gasUsed.toString()).to.eq('105172');
         });
-
-        await tx.wait();
-
-        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
-        });
-        receipt = await tx.wait();
-      });
-
-      it("returns the contract's ETH back in WETH", async () => {
-        const balance = await provider.getBalance(ethRejecterAddress);
-        expect(balance.toString()).to.eq('0');
-
-        const wethAsBidder = wethAs(firstBidderWallet);
-        const contractWethBalance = (await wethAsBidder).balanceOf(
-          ethRejecterAddress
-        );
-
-        expect((await contractWethBalance).toString()).to.eq(
-          oneETH().toString()
-        );
-      });
-
-      it('should cost 138781 gas', () => {
-        const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('138781');
-      });
-    });
-
-    describe('when the first bidder is a contract that accepts ETH but uses more gas', () => {
-      let receipt;
-
-      beforeEach(async () => {
-        const {
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
-        } = await setupAuctionData();
-
-        await setupAuction({
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
-        });
-
-        const receiver = await ethReceiverAs(firstBidderWallet);
-        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
-
-        let tx = await receiver.relayBid(auctionAddress, tokenId, oneETH(), {
-          value: oneETH(),
-        });
-
-        await tx.wait();
-
-        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
-        });
-        receipt = await tx.wait();
-      });
-
-      it("returns the contract's ETH back in ETH", async () => {
-        const balance = await provider.getBalance(ethReceiverAddress);
-        expect(balance.toString()).to.eq(oneETH().toString());
-
-        const wethAsBidder = wethAs(firstBidderWallet);
-        const contractWethBalance = (await wethAsBidder).balanceOf(
-          ethReceiverAddress
-        );
-
-        expect((await contractWethBalance).toString()).to.eq('0');
-      });
-
-      it('should cost 91368 gas', () => {
-        const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('91368');
-      });
-    });
-
-    describe('when the first bidder is a contract that attempts reentrancy', () => {
-      let receipt;
-
-      beforeEach(async () => {
-        const {
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
-        } = await setupAuctionData();
-
-        await setupAuction({
-          tokenId,
-          reservePrice,
-          duration,
-          curatorFeePercent,
-        });
-
-        const attacker = await reentrancyAttackerAs(firstBidderWallet);
-        const auctionAsSecondBidder = await auctionAs(secondBidderWallet);
-
-        let tx = await attacker.relayBid(auctionAddress, tokenId, oneETH(), {
-          value: oneETH(),
-        });
-
-        await tx.wait();
-
-        tx = await auctionAsSecondBidder.createBid(tokenId, twoETH(), {
-          value: twoETH(),
-        });
-        receipt = await tx.wait();
-      });
-
-      it("returns the contract's ETH back in WETH", async () => {
-        const balance = await provider.getBalance(reentrancyAttackerAddress);
-        expect(balance.toString()).to.eq('0');
-
-        const wethAsBidder = wethAs(firstBidderWallet);
-        const contractWethBalance = (await wethAsBidder).balanceOf(
-          reentrancyAttackerAddress
-        );
-
-        expect((await contractWethBalance).toString()).to.eq(
-          oneETH().toString()
-        );
-      });
-
-      it('should cost 116217 gas', () => {
-        const { gasUsed } = receipt;
-        expect(gasUsed.toString()).to.eq('116217');
       });
     });
   });

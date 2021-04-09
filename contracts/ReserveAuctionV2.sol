@@ -95,6 +95,8 @@ contract ReserveAuctionV2 is ReentrancyGuard {
 
     // ============ Events ============
 
+    // All of the details of a new auction,
+    // with an index created for the tokenId.
     event AuctionCreated(
         uint256 indexed tokenId,
         address nftContractAddress,
@@ -105,6 +107,8 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         address fundsRecipient
     );
 
+    // All of the details of a new bid,
+    // with an index created for the tokenId.
     event AuctionBid(
         uint256 indexed tokenId,
         address nftContractAddress,
@@ -112,12 +116,16 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         uint256 value
     );
 
+    // All of the details of an auction's cancelation,
+    // with an index created for the tokenId.
     event AuctionCanceled(
         uint256 indexed tokenId,
         address nftContractAddress,
         address curator
     );
 
+    // All of the details of an auction's close,
+    // with an index created for the tokenId.
     event AuctionEnded(
         uint256 indexed tokenId,
         address nftContractAddress,
@@ -128,6 +136,8 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         address payable fundsRecipient
     );
 
+    // When the curator recevies fees, emit the details including the amount,
+    // with an index created for the tokenId.
     event CuratorFeePercentTransfer(
         uint256 indexed tokenId,
         address curator,
@@ -240,6 +250,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         // Check basic input requirements are reasonable.
         require(curator != address(0));
         require(fundsRecipient != address(0));
+        require(curatorFeePercent < 100, "Curator fee should be < 100");
         // Initialize the auction details, including null values.
         auctions[tokenId] = Auction({
             duration: duration,
@@ -279,7 +290,7 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         auctionExists(tokenId)
         auctionNotExpired(tokenId)
     {
-        // Check basic input requirements.
+        // Validate that the user's expected bid value matches the ETH deposit.
         require(amount == msg.value, "Amount doesn't equal msg.value");
         require(amount > 0, "Amount must be greater than 0");
         // Check if the current bid amount is 0.
@@ -313,14 +324,6 @@ contract ReserveAuctionV2 is ReentrancyGuard {
                 auctions[tokenId].amount
             );
         }
-        // Confirm that this is a valid bid, according to Zora market.
-        require(
-            IMarket(IMediaModified(nftContract).marketContract()).isValidBid(
-                tokenId,
-                amount
-            ),
-            "Bid would cause invalid split from Zora market"
-        );
         // Update the current auction.
         auctions[tokenId].amount = amount;
         auctions[tokenId].bidder = msg.sender;
@@ -345,22 +348,27 @@ contract ReserveAuctionV2 is ReentrancyGuard {
         whenNotPaused
         auctionComplete(tokenId)
     {
-        // Record relevant data from the auction.
+        // Store relevant auction data in memory for the life of this function.
         address winner = auctions[tokenId].bidder;
         uint256 amount = auctions[tokenId].amount;
         address curator = auctions[tokenId].curator;
         uint8 curatorFeePercent = auctions[tokenId].curatorFeePercent;
         address payable fundsRecipient = auctions[tokenId].fundsRecipient;
-        // Remove all auction data for this token.
+        // Remove all auction data for this token from storage.
         delete auctions[tokenId];
         // We don't use safeTransferFrom, to prevent reverts at this point,
         // which would break the auction.
         IERC721(nftContract).transferFrom(address(this), winner, tokenId);
         // First handle the curator's fee.
         if (curatorFeePercent > 0) {
+            // Determine the curator amount, which is some percent of the total.
             uint256 curatorAmount = amount.mul(curatorFeePercent).div(100);
+            // Send it to the curator.
             transferETHOrWETH(curator, curatorAmount);
+            // Subtract the curator amount from the total funds available
+            // to send to the funds recipient and original NFT creator.
             amount = amount.sub(curatorAmount);
+            // Emit the details of the transfer as an event.
             emit CuratorFeePercentTransfer(tokenId, curator, curatorAmount);
         }
         // Get the address of the original creator, so that we can split shares
@@ -369,18 +377,25 @@ contract ReserveAuctionV2 is ReentrancyGuard {
             payable(
                 address(IMediaModified(nftContract).tokenCreators(tokenId))
             );
-        // If the creator and the recipient of the funds are the same,
-        // and this should be common, we just do one transaction.
+        // If the creator and the recipient of the funds are the same
+        // (and we expect this to be common), we can just do one transaction.
         if (nftCreator == fundsRecipient) {
             transferETHOrWETH(nftCreator, amount);
         } else {
+            // Otherwise, we should determine the percent that goes to the creator.
             // Collect share data from Zora.
-            IMarket.BidShares memory bidShares =
-                IMarket(IMediaModified(nftContract).marketContract())
-                    .bidSharesForToken(tokenId);
             uint256 creatorAmount =
+                // Call the splitShare function on the market contract, which
+                // takes in a Decimal and an amount.
                 IMarket(IMediaModified(nftContract).marketContract())
-                    .splitShare(bidShares.creator, amount);
+                    .splitShare(
+                    // Fetch the decimal from the BidShares data on the market.
+                    IMarket(IMediaModified(nftContract).marketContract())
+                        .bidSharesForToken(tokenId)
+                        .creator,
+                    // Specify the amount.
+                    amount
+                );
             // Send the creator's share to the creator.
             transferETHOrWETH(nftCreator, creatorAmount);
             // Send the remainder of the amount to the funds recipient.

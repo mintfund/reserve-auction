@@ -11,10 +11,8 @@ We believe that building the tools for creatives to push their best works unfett
 > Build a success-based funding source to ensure MintFund can continue to sustain its work without relying on donations
 
 
+
 To learn more about the backstory of our campaign: https://mint.mirror.xyz/mDws2xGmJCq55ehGDdcv8tGDCpSd_c_CfeqhexiKSqU
-
-//
-
 Please send bug reports or feedback to g@mirror.xyz
 
 ## Bug Bounty

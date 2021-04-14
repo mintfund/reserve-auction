@@ -360,6 +360,7 @@ contract ReserveAuctionV3 is ReentrancyGuard {
         // which would break the auction.
         IERC721(nftContract).transferFrom(address(this), winner, tokenId);
         // First handle the curator's fee.
+        uint256 auctionFees = 0;
         if (curatorFeePercent > 0) {
             // Determine the curator amount, which is some percent of the total.
             uint256 curatorAmount = amount.mul(curatorFeePercent).div(100);
@@ -367,7 +368,7 @@ contract ReserveAuctionV3 is ReentrancyGuard {
             transferETHOrWETH(curator, curatorAmount);
             // Subtract the curator amount from the total funds available
             // to send to the funds recipient and original NFT creator.
-            amount = amount.sub(curatorAmount);
+            auctionFees += curatorAmount;
             // Emit the details of the transfer as an event.
             emit CuratorFeePercentTransfer(tokenId, curator, curatorAmount);
         }
@@ -380,7 +381,7 @@ contract ReserveAuctionV3 is ReentrancyGuard {
         // If the creator and the recipient of the funds are the same
         // (and we expect this to be common), we can just do one transaction.
         if (nftCreator == fundsRecipient) {
-            transferETHOrWETH(nftCreator, amount);
+            transferETHOrWETH(nftCreator, amount.sub(auctionFees));
         } else {
             // Otherwise, we should determine the percent that goes to the creator.
             // Collect share data from Zora.
@@ -398,8 +399,9 @@ contract ReserveAuctionV3 is ReentrancyGuard {
                 );
             // Send the creator's share to the creator.
             transferETHOrWETH(nftCreator, creatorAmount);
+            auctionFees += creatorAmount;
             // Send the remainder of the amount to the funds recipient.
-            transferETHOrWETH(fundsRecipient, amount.sub(creatorAmount));
+            transferETHOrWETH(fundsRecipient, amount.sub(auctionFees));
         }
         // Emit an event describing the end of the auction.
         emit AuctionEnded(

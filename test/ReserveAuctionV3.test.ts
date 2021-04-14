@@ -1350,7 +1350,7 @@ describe('ReserveAuctionV3', () => {
           curatorAmount = twoETH().div(100).mul(5);
           creatorAmount = await market.splitShare(
             creatorShare.creator,
-            twoETH().sub(curatorAmount)
+            twoETH()
           );
 
           const endAuctionTx = await auctionAsBidder.endAuction(tokenId);
